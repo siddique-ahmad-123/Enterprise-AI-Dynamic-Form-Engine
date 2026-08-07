@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #f4f6f9;
+  color: #1e295d;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* CopilotKit Sidebar Light Theme Customization */
+.copilotKitSidebar {
+  --copilot-kit-primary-color: #1e295d;
+  --copilot-kit-background-color: #ffffff;
+  --copilot-kit-contrast-color: #0f172a;
+  --copilot-kit-secondary-color: #f1f5f9;
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Custom scrollbar hiding for horizontal tabs */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

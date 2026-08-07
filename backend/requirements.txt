@@ -1,0 +1,46 @@
+# ──────────────────────────────────────────────────────────────
+# FastAPI & Server
+# ──────────────────────────────────────────────────────────────
+fastapi>=0.115.0,<0.116.0
+uvicorn[standard]>=0.29.0
+python-dotenv>=1.0.1
+httpx>=0.27.2
+
+# ──────────────────────────────────────────────────────────────
+# AG-UI LangGraph integration
+# Native AG-UI HTTP endpoint for LangGraph agents
+# ──────────────────────────────────────────────────────────────
+ag-ui-langgraph
+
+# ──────────────────────────────────────────────────────────────
+# CopilotKit Python SDK
+# Required for CopilotKitState and copilotkit_emit_state used
+# in graph state definition and intermediate state streaming
+# ──────────────────────────────────────────────────────────────
+copilotkit==0.1.94
+
+# ──────────────────────────────────────────────────────────────
+# LangGraph Runtime
+# ──────────────────────────────────────────────────────────────
+langgraph>=1.0.0
+langgraph-checkpoint>=4.0.0
+langgraph-sdk>=0.2.0
+
+# ──────────────────────────────────────────────────────────────
+# LangChain
+# ──────────────────────────────────────────────────────────────
+langchain>=1.0.0
+langchain-core>=1.0.0
+langchain-openai>=0.3.0
+
+# ──────────────────────────────────────────────────────────────
+# OpenAI & Validation
+# ──────────────────────────────────────────────────────────────
+openai>=1.30.0
+pydantic>=2.7.0
+
+# ── Arize Phoenix Observability ────────────────────────────
+arize-phoenix-otel
+openinference-instrumentation-langchain
+openinference-instrumentation-openai
+opentelemetry-exporter-otlp

@@ -1,0 +1,49 @@
+{
+  "name": "ai-dynamic-form-assistant-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@copilotkit/react-core": "^1.62.2",
+    "@copilotkit/react-ui": "^1.62.2",
+    "@floating-ui/react": "^0.27.20",
+    "@segment/analytics-generic-utils": "^1.2.0",
+    "@tanstack/store": "^0.11.1",
+    "@types/lodash-es": "^4.17.12",
+    "clsx": "^2.1.0",
+    "d3-color": "^3.1.0",
+    "d3-interpolate": "^3.0.1",
+    "dotenv": "^17.4.2",
+    "framer-motion": "^11.0.8",
+    "highlight.js": "^11.9.0",
+    "lodash-es": "^4.17.21",
+    "lucide": "^0.344.0",
+    "lucide-react": "^0.344.0",
+    "property-information": "^7.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-syntax-highlighter": "^16.1.1",
+    "refractor": "^4.8.0",
+    "rxjs": "^7.8.1",
+    "tailwind-merge": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.62.4"
+  }
+}

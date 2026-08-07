@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o
+      - ENABLE_PHOENIX=true
+      - PHOENIX_COLLECTOR_ENDPOINT=https://ainsg.newgensoftware.net/phoenix/v1/traces
+      - ALLOWED_ORIGINS=*
+    restart: always
+
+  copilot-runtime:
+    build:
+      context: ./copilot-runtime
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - PYTHON_COPILOT_URL=http://backend:8000/copilotkit
+    depends_on:
+      - backend
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_COPILOTKIT_RUNTIME_URL=http://localhost:4000/copilotkit
+    depends_on:
+      - copilot-runtime
+    restart: always
