@@ -1,8 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import "@copilotkit/react-ui/styles.css";
 import { CopilotKit, useCopilotChat } from "@copilotkit/react-core";
 import { CopilotSidebar } from "@copilotkit/react-ui";
-import { Bot, X, Sparkles } from "lucide-react";
 
 import { FormRenderer } from "./components/form/FormRenderer";
 import { QuickActions } from "./components/ui/QuickActions";
@@ -25,12 +24,7 @@ Always perform two-way synchronization and keep responses helpful, clear, and st
 const RUNTIME_URL =
   import.meta.env.VITE_COPILOTKIT_RUNTIME_URL || "http://localhost:4000/copilotkit";
 
-interface MainContentProps {
-  isSidebarOpen: boolean;
-  onToggleSidebar: () => void;
-}
-
-function MainContent({ isSidebarOpen, onToggleSidebar }: MainContentProps) {
+function MainContent() {
   const {
     state,
     updateFieldValue,
@@ -41,9 +35,6 @@ function MainContent({ isSidebarOpen, onToggleSidebar }: MainContentProps) {
   const { appendMessage } = useCopilotChat();
 
   const handleSelectPrompt = (promptText: string) => {
-    if (!isSidebarOpen) {
-      onToggleSidebar();
-    }
     appendMessage({
       role: "user",
       content: promptText,
@@ -71,44 +62,11 @@ function MainContent({ isSidebarOpen, onToggleSidebar }: MainContentProps) {
           <QuickActions onSelectPrompt={handleSelectPrompt} />
         </div>
       </main>
-
-      {/* Floating Chatbot Action Trigger (FAB) */}
-      <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3">
-        {!isSidebarOpen && (
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1e295d] text-white text-xs font-semibold shadow-lg animate-bounce border border-indigo-300/30">
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Ask AI Assistant</span>
-          </div>
-        )}
-        <button
-          onClick={onToggleSidebar}
-          aria-label="Toggle AI Chatbot"
-          className={`flex items-center justify-center w-14 h-14 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 ${
-            isSidebarOpen
-              ? "bg-slate-800 text-white hover:bg-slate-900 ring-4 ring-slate-400/20"
-              : "bg-[#1e295d] text-white hover:bg-[#161f48] ring-4 ring-indigo-500/30"
-          }`}
-        >
-          {isSidebarOpen ? (
-            <X className="w-6 h-6" />
-          ) : (
-            <div className="relative">
-              <Bot className="w-7 h-7" />
-              <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-              </span>
-            </div>
-          )}
-        </button>
-      </div>
     </div>
   );
 }
 
 export default function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
   return (
     <CopilotKit runtimeUrl={RUNTIME_URL} agent="form_agent">
       <CopilotSidebar
@@ -122,10 +80,7 @@ export default function App() {
         defaultOpen={false}
         clickOutsideToClose={false}
       >
-        <MainContent
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-        />
+        <MainContent />
       </CopilotSidebar>
     </CopilotKit>
   );
