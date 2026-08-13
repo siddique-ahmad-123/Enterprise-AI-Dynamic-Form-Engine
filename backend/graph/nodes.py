@@ -9,6 +9,7 @@ Pipeline flow:
 receive_request -> understand_intent -> traverse_tree -> locate_node -> validate_action -> update_shared_state -> generate_response
 """
 
+import json
 import logging
 import datetime
 from typing import Dict, Any, Optional, List
@@ -23,11 +24,16 @@ from services import (
     find_tab_by_query,
     validate_and_cast_value,
     generate_form_summary,
+    get_form_summary_data,
     generate_missing_fields_report,
+    get_missing_fields_data,
+    get_chart_analysis_data,
     get_all_tabs,
     get_all_fields,
     split_set_command,
 )
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +341,8 @@ async def generate_response_node(
     config: RunnableConfig,
 ) -> dict:
     """
-    Generates the final natural language AIMessage displayed in the CopilotKit chat.
+    Generates the final natural language AIMessage displayed in the CopilotKit chat,
+    embedding structured Card UI data for rich visual rendering in the React UI.
     """
     pending = state.get("pendingUpdates") or {}
     intent_data = pending.get("intent_analysis") or {}
@@ -349,16 +356,35 @@ async def generate_response_node(
     field_values = state.get("fieldValues") or {}
 
     content = ""
+    card_dict = None
 
     # Case 1: Validation error (e.g. Readonly field violation)
     if validation_error:
+        label = field_match.get("label", "Field") if field_match else "Field"
+        card_dict = {
+            "card_type": "validation_error",
+            "title": "Action Restricted",
+            "field_label": label,
+            "message": validation_error.replace("⚠️ ", "").replace("**", "")
+        }
         content = validation_error
 
     # Case 2: Update Field successful
     elif intent_type == IntentType.UPDATE_FIELD and field_match:
         label = field_match.get("label")
-        val = field_values.get(field_match.get("node_id"))
-        path_str = " -> ".join(field_match.get("path", []))
+        node_id = field_match.get("node_id")
+        val = field_values.get(node_id)
+        path = field_match.get("path", [])
+        path_str = " -> ".join(path)
+
+        card_dict = {
+            "card_type": "update_success",
+            "title": "Field Updated Successfully",
+            "field_label": label,
+            "new_value": str(val) if val is not None else "",
+            "node_id": node_id,
+            "path": path
+        }
         content = (
             f"✅ **Updated Field Successfully!**\n\n"
             f"• **Field**: `{label}` (Location: *{path_str}*)\n"
@@ -369,6 +395,13 @@ async def generate_response_node(
     # Case 3: Clear Field
     elif intent_type == IntentType.CLEAR_FIELD and field_match:
         label = field_match.get("label")
+        node_id = field_match.get("node_id")
+        card_dict = {
+            "card_type": "clear_field",
+            "title": "Cleared Field",
+            "field_label": label,
+            "node_id": node_id
+        }
         content = f"🧹 **Cleared Field**: `{label}` value has been reset."
 
     # Case 4: Query Field
@@ -378,26 +411,67 @@ async def generate_response_node(
         val = field_values.get(node_id, field_match.get("value"))
         val_display = f"`{val}`" if val is not None and val != "" else "*(empty)*"
         readonly_tag = " [READ-ONLY]" if field_match.get("readonly") else ""
+
+        card_dict = {
+            "card_type": "field_info",
+            "title": f"Field Information: {label}",
+            "field_label": label,
+            "value": str(val) if val is not None else "",
+            "node_id": node_id,
+            "field_type": field_match.get("field_type", "text"),
+            "readonly": field_match.get("readonly", False),
+            "required": field_match.get("required", False)
+        }
         content = f"🔍 **Field Information for '{label}'**{readonly_tag}:\n\n• **Current Value**: {val_display}\n• **Node ID**: `{node_id}`\n• **Field Type**: `{field_match.get('field_type', 'text')}`"
 
     # Case 5: Navigate Tab
     elif intent_type == IntentType.NAVIGATE_TAB:
         if tab_match:
             label = tab_match.get("label")
+            node_id = tab_match.get("node_id")
+            card_dict = {
+                "card_type": "navigate_tab",
+                "title": "Navigated to Tab",
+                "tab_label": label,
+                "node_id": node_id
+            }
             content = f"📌 **Navigated to Tab**: Switched active tab to **{label}**."
         else:
             content = "⚠️ Could not locate the specified tab in the form."
 
     # Case 6: Form Summary
     elif intent_type == IntentType.SUMMARIZE_FORM:
+        card_dict = get_form_summary_data(form_tree, field_values)
         content = generate_form_summary(form_tree, field_values)
 
     # Case 7: Find Missing Required Fields
     elif intent_type == IntentType.FIND_MISSING:
+        card_dict = get_missing_fields_data(form_tree, field_values)
         content = generate_missing_fields_report(form_tree, field_values)
 
-    # Case 8: General fallback assistance
+    # Case 8: Plot Chart Analysis (PieChart / BarChart)
+    elif intent_type == IntentType.PLOT_CHART:
+        ctype = intent_data.get("chart_type", "pie_chart")
+        card_dict = get_chart_analysis_data(form_tree, field_values, chart_type=ctype)
+        chart_title = card_dict.get("title", "Chart Analysis")
+        content = f"📊 **{chart_title}**\n\n*Rendering real-time interactive visual graph...*"
+
+    # Case 9: General fallback assistance
     else:
+        card_dict = {
+            "card_type": "help",
+            "title": "AI Dynamic Form Assistant",
+            "description": "I can understand and manipulate this entire dynamic form hierarchy. Select a quick command or type your prompt below:",
+            "suggestions": [
+                "Set Customer Name to John Doe",
+                "Update KYC Status to Verified",
+                "Change Risk Rating to High",
+                "Navigate to Check Eligibility tab",
+                "Show current Identity Type",
+                "Which fields are empty?",
+                "Summarize the form"
+            ]
+        }
         content = (
             "🤖 **AI Dynamic Form Assistant**\n\n"
             "I can understand and manipulate this entire dynamic form hierarchy. Try asking me:\n\n"
@@ -410,4 +484,10 @@ async def generate_response_node(
             "• *\"Summarize the form\"*"
         )
 
-    return {"messages": [AIMessage(content=content)], "isProcessing": False}
+    final_text = content
+    if card_dict:
+        json_str = json.dumps(card_dict, indent=2)
+        final_text = f"```json:card\n{json_str}\n```\n\n{content}"
+
+    return {"messages": [AIMessage(content=final_text)], "isProcessing": False}
+

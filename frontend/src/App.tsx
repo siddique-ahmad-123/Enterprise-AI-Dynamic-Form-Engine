@@ -5,7 +5,9 @@ import { CopilotSidebar } from "@copilotkit/react-ui";
 
 import { FormRenderer } from "./components/form/FormRenderer";
 import { QuickActions } from "./components/ui/QuickActions";
+import { CustomRenderMessage } from "./components/chat/CustomRenderMessage";
 import { useFormState } from "./hooks/useFormState";
+import { myCatalog } from "./a2ui/catalog";
 
 const COPILOT_INSTRUCTIONS = `
 You are the AI Dynamic Form Assistant — an enterprise form engine assistant for Newgen Loan Applications.
@@ -66,22 +68,44 @@ function MainContent() {
   );
 }
 
+function SidebarContainer() {
+  const { appendMessage } = useCopilotChat();
+
+  const handleSelectPrompt = (promptText: string) => {
+    appendMessage({
+      role: "user",
+      content: promptText,
+    } as any);
+  };
+
+  const renderCustomMessage = (props: any) => (
+    <CustomRenderMessage {...props} onSelectPrompt={handleSelectPrompt} />
+  );
+
+  return (
+    <CopilotSidebar
+      instructions={COPILOT_INSTRUCTIONS}
+      labels={{
+        title: "🤖 Form AI Assistant",
+        placeholder: "Type: 'Set Customer Name to John', 'Which fields are empty?'...",
+        stopGenerating: "Stop",
+        regenerateResponse: "Regenerate",
+      }}
+      RenderMessage={renderCustomMessage}
+      defaultOpen={false}
+      clickOutsideToClose={false}
+    >
+      <MainContent />
+    </CopilotSidebar>
+  );
+}
+
 export default function App() {
   return (
-    <CopilotKit runtimeUrl={RUNTIME_URL} agent="form_agent">
-      <CopilotSidebar
-        instructions={COPILOT_INSTRUCTIONS}
-        labels={{
-          title: "🤖 Form AI Assistant",
-          placeholder: "Type: 'Set Customer Name to John', 'Which fields are empty?'...",
-          stopGenerating: "Stop",
-          regenerateResponse: "Regenerate",
-        }}
-        defaultOpen={false}
-        clickOutsideToClose={false}
-      >
-        <MainContent />
-      </CopilotSidebar>
+    <CopilotKit runtimeUrl={RUNTIME_URL} agent="form_agent" a2ui={{ catalog: myCatalog } as any}>
+      <SidebarContainer />
     </CopilotKit>
   );
 }
+
+

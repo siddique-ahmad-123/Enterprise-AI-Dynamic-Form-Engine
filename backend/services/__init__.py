@@ -12,7 +12,10 @@ from services.form_service import (
     analyze_user_intent,
     validate_and_cast_value,
     generate_form_summary,
+    get_form_summary_data,
     generate_missing_fields_report,
+    get_missing_fields_data,
+    get_chart_analysis_data,
     split_set_command,
 )
 
@@ -27,6 +30,11 @@ __all__ = [
     "analyze_user_intent",
     "validate_and_cast_value",
     "generate_form_summary",
+    "get_form_summary_data",
     "generate_missing_fields_report",
+    "get_missing_fields_data",
+    "get_chart_analysis_data",
     "split_set_command",
 ]
+
+

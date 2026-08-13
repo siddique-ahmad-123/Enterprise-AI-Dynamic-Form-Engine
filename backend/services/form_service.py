@@ -72,8 +72,17 @@ async def analyze_user_intent(
     if not user_text:
         return IntentAnalysis(intent=IntentType.UNKNOWN)
 
-    # First, quick pattern matches for high performance
     lower = user_text.lower().strip()
+
+    # Chart / Graph plot fast check
+    if any(k in lower for k in ["pie chart", "bar chart", "chart", "plot", "graph", "visualize"]):
+        ctype = "bar_chart" if "bar" in lower else "pie_chart"
+        return IntentAnalysis(
+            intent=IntentType.PLOT_CHART,
+            chart_type=ctype,
+            reasoning="Fast pattern match for chart visualization request"
+        )
+
 
     # Tab navigation fast check
     if lower.startswith(("navigate to", "go to", "open tab", "switch to tab", "show tab")):
@@ -108,6 +117,7 @@ async def analyze_user_intent(
         )
 
     # LLM Intent Classifier for complex commands
+
     try:
         llm = get_llm()
         tree_context = format_tree_as_markdown(form_tree, field_values)
@@ -229,6 +239,57 @@ def validate_and_cast_value(field_node: Dict[str, Any], raw_value: Any) -> Tuple
     return str(raw_value), None
 
 
+def get_form_summary_data(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> Dict[str, Any]:
+    """Returns structured data for form summary card rendering."""
+    fields = get_all_fields(form_tree)
+    if not fields:
+        return {
+            "card_type": "form_summary",
+            "total_fields": 0,
+            "filled_fields": 0,
+            "percentage": 0,
+            "readonly_fields": 0,
+            "field_items": [],
+            "missing_required": []
+        }
+
+    total_fields = len(fields)
+    filled_fields = 0
+    readonly_fields = 0
+    missing_required = []
+    field_items = []
+
+    for f in fields:
+        node_id = f.get("node_id", "")
+        label = f.get("label", node_id)
+        val = field_values.get(node_id, f.get("value"))
+        readonly = f.get("readonly", False)
+        required = f.get("required", False)
+
+        if readonly:
+            readonly_fields += 1
+
+        is_empty = val is None or val == "" or val == []
+
+        if not is_empty:
+            filled_fields += 1
+            field_items.append({"node_id": node_id, "label": label, "value": str(val), "readonly": readonly})
+        else:
+            if required:
+                missing_required.append(label)
+
+    pct = int((filled_fields / total_fields) * 100) if total_fields > 0 else 0
+    return {
+        "card_type": "form_summary",
+        "total_fields": total_fields,
+        "filled_fields": filled_fields,
+        "readonly_fields": readonly_fields,
+        "percentage": pct,
+        "field_items": field_items,
+        "missing_required": missing_required
+    }
+
+
 def generate_form_summary(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> str:
     """Generates a complete natural language summary of form values and completion."""
     fields = get_all_fields(form_tree)
@@ -277,6 +338,33 @@ def generate_form_summary(form_tree: Dict[str, Any], field_values: Dict[str, Any
     return "\n".join(output)
 
 
+def get_missing_fields_data(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> Dict[str, Any]:
+    """Returns structured dictionary for missing fields analysis."""
+    fields = get_all_fields(form_tree)
+    missing_required = []
+    empty_optional = []
+
+    for f in fields:
+        node_id = f.get("node_id", "")
+        label = f.get("label", node_id)
+        val = field_values.get(node_id, f.get("value"))
+        required = f.get("required", False)
+        readonly = f.get("readonly", False)
+
+        is_empty = val is None or val == "" or val == []
+        if is_empty and not readonly:
+            if required:
+                missing_required.append(label)
+            else:
+                empty_optional.append(label)
+
+    return {
+        "card_type": "missing_fields",
+        "missing_required": missing_required,
+        "empty_optional": empty_optional
+    }
+
+
 def generate_missing_fields_report(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> str:
     """Returns a list of empty fields with focus on required fields."""
     fields = get_all_fields(form_tree)
@@ -311,3 +399,52 @@ def generate_missing_fields_report(form_tree: Dict[str, Any], field_values: Dict
         res.extend(empty_optional)
 
     return "\n".join(res)
+
+
+def get_chart_analysis_data(form_tree: Dict[str, Any], field_values: Dict[str, Any], chart_type: str = "pie_chart") -> Dict[str, Any]:
+    """Generates structured chart dataset for real-time PieChart or BarChart visualization."""
+    fields = get_all_fields(form_tree)
+    filled_count = 0
+    missing_req_count = 0
+    empty_opt_count = 0
+    field_types = {}
+
+    for f in fields:
+        node_id = f.get("node_id", "")
+        val = field_values.get(node_id, f.get("value"))
+        required = f.get("required", False)
+        readonly = f.get("readonly", False)
+        ftype = str(f.get("field_type", "text")).capitalize()
+
+        field_types[ftype] = field_types.get(ftype, 0) + 1
+
+        is_empty = val is None or val == "" or val == []
+        if not is_empty:
+            filled_count += 1
+        else:
+            if required:
+                missing_req_count += 1
+            else:
+                empty_opt_count += 1
+
+    if "bar" in str(chart_type).lower():
+        data = [{"label": k, "value": v} for k, v in field_types.items()]
+        return {
+            "card_type": "bar_chart",
+            "title": "Form Field Type Breakdown (Bar Chart)",
+            "description": f"Distribution across {len(fields)} fields by data type.",
+            "data": data
+        }
+    else:
+        data = [
+            {"label": "Filled Fields", "value": filled_count},
+            {"label": "Missing Required", "value": missing_req_count},
+            {"label": "Optional Empty", "value": empty_opt_count},
+        ]
+        return {
+            "card_type": "pie_chart",
+            "title": "Form Completion Analysis (Pie Chart)",
+            "description": f"Real-time completion status across {len(fields)} total form fields.",
+            "data": data
+        }
+

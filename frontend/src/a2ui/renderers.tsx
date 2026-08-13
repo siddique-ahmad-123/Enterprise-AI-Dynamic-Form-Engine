@@ -1,0 +1,407 @@
+import React from "react";
+import {
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
+import type { CatalogRenderers } from "@copilotkit/a2ui-renderer";
+import { AlertTriangle, AlertCircle, CheckCircle2, Info } from "lucide-react";
+
+import type { MyDefinitions } from "./definitions";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+
+// ─── Theme tokens + palette (mirrors beautiful-chat) ────────────────────────
+const c = {
+  card: "var(--card, #ffffff)",
+  cardFg: "var(--card-foreground, #0f172a)",
+  border: "var(--border, #e2e8f0)",
+  muted: "var(--muted-foreground, #64748b)",
+  divider: "color-mix(in srgb, var(--border, #e2e8f0) 50%, var(--card, #ffffff))",
+  shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+};
+
+const CHART_COLORS = [
+  "#3b82f6", // blue-500
+  "#8b5cf6", // violet-500
+  "#ec4899", // pink-500
+  "#f59e0b", // amber-500
+  "#10b981", // emerald-500
+  "#6366f1", // indigo-500
+] as const;
+
+/** DashboardCard-style chrome shared by Card and the chart wrappers. */
+function CardShell({
+  title,
+  subtitle,
+  testid,
+  cardId,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  testid?: string;
+  cardId?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      data-testid={testid}
+      data-card-id={cardId}
+      style={{
+        background: c.card,
+        borderRadius: "12px",
+        border: `1px solid ${c.border}`,
+        padding: "20px",
+        boxShadow: c.shadow,
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        width: "100%",
+        minWidth: 0,
+        overflow: "hidden",
+      }}
+    >
+      <div>
+        <div style={{ fontWeight: 600, fontSize: "0.9rem", color: c.cardFg }}>
+          {title}
+        </div>
+        {subtitle && (
+          <div
+            style={{ fontSize: "0.75rem", color: c.muted, marginTop: "2px" }}
+          >
+            {subtitle}
+          </div>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export const myRenderers: CatalogRenderers<MyDefinitions> = {
+  Row: ({ props, children }) => {
+    const justifyMap: Record<string, string> = {
+      start: "flex-start",
+      center: "center",
+      end: "flex-end",
+      spaceBetween: "space-between",
+    };
+    const items = Array.isArray(props.children) ? props.children : [];
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          gap: `${props.gap ?? 16}px`,
+          alignItems: props.align ?? "stretch",
+          justifyContent: justifyMap[props.justify ?? "start"] ?? "flex-start",
+          flexWrap: "wrap",
+          width: "100%",
+        }}
+      >
+        {items.map((id, i) => (
+          <div key={`${id}-${i}`} style={{ flex: "1 1 0", minWidth: 0 }}>
+            {children(id)}
+          </div>
+        ))}
+      </div>
+    );
+  },
+
+  Column: ({ props, children }) => {
+    const items = Array.isArray(props.children) ? props.children : [];
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: `${props.gap ?? 12}px`,
+          width: "100%",
+        }}
+      >
+        {items.map((id, i) => (
+          <React.Fragment key={`${id}-${i}`}>{children(id)}</React.Fragment>
+        ))}
+      </div>
+    );
+  },
+
+  Text: ({ props }) => (
+    <span style={{ fontSize: "0.85rem", color: c.cardFg, lineHeight: 1.5 }}>
+      {props.text}
+    </span>
+  ),
+
+  Card: ({ props, children }) => (
+    <CardShell
+      title={props.title}
+      subtitle={props.subtitle}
+      testid="declarative-card"
+      cardId={props.title}
+    >
+      {props.child && children(props.child)}
+    </CardShell>
+  ),
+
+  StatusBadge: ({ props }) => {
+    const variant = props.variant ?? "info";
+    const Icon = {
+      error: AlertTriangle,
+      warning: AlertCircle,
+      success: CheckCircle2,
+      info: Info,
+    }[variant];
+    return (
+      <Badge
+        variant={variant}
+        style={{ alignSelf: "flex-start" }}
+        data-testid="declarative-status-badge"
+      >
+        <Icon size={12} strokeWidth={2.5} style={{ marginRight: 4 }} />
+        {props.text}
+      </Badge>
+    );
+  },
+
+
+  Metric: ({ props }) => {
+    const trendColors: Record<string, string> = {
+      up: "#059669",
+      down: "#dc2626",
+      neutral: c.muted,
+    };
+    const trendIcons: Record<string, string> = {
+      up: "↑",
+      down: "↓",
+      neutral: "→",
+    };
+    return (
+      <div
+        data-testid="declarative-metric"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+          minWidth: "120px",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "0.75rem",
+            color: c.muted,
+            fontWeight: 500,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          {props.label}
+        </span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+          <span
+            style={{
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              color: c.cardFg,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {props.value}
+          </span>
+          {props.trend && (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                color: trendColors[props.trend] ?? c.muted,
+              }}
+            >
+              {trendIcons[props.trend]}
+              {props.trendValue ? ` ${props.trendValue}` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  },
+
+  InfoRow: ({ props }) => (
+    <div
+      data-testid="declarative-info-row"
+      className="flex items-baseline justify-between gap-4 py-2 border-b border-slate-200 last:border-b-0 last:pb-0 first:pt-0"
+    >
+      <span className="text-sm text-slate-500">
+        {props.label}
+      </span>
+      <span className="text-sm font-medium text-slate-900 text-right tabular-nums">
+        {props.value}
+      </span>
+    </div>
+  ),
+
+  DataTable: ({ props }) => {
+    const cols = Array.isArray(props.columns) ? props.columns : [];
+    const rows = Array.isArray(props.rows) ? props.rows : [];
+    return (
+      <div
+        data-testid="declarative-data-table"
+        className="w-full overflow-x-auto"
+      >
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th
+                  key={col.key}
+                  className="border-b-2 border-slate-200 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const pk = cols.length > 0 ? row[cols[0].key] : undefined;
+              const rowKey =
+                pk !== undefined ? `${pk}-${i}` : JSON.stringify(row);
+              return (
+                <tr
+                  key={rowKey}
+                  className="border-b border-slate-200 last:border-b-0"
+                >
+                  {cols.map((col) => (
+                    <td
+                      key={col.key}
+                      className="px-3 py-2 tabular-nums text-slate-900"
+                    >
+                      {String(row[col.key] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  },
+
+  PrimaryButton: ({ props, dispatch }) => (
+    <Button
+      onClick={() => {
+        if (props.action && dispatch) dispatch(props.action);
+      }}
+    >
+      {props.label}
+    </Button>
+  ),
+
+  PieChart: ({ props }) => {
+    const data = (Array.isArray(props.data) ? props.data : []).map((d) => {
+      const raw = (d as { value?: unknown }).value;
+      const n = typeof raw === "number" ? raw : parseFloat(raw as string);
+      let value: number;
+      if (Number.isFinite(n)) {
+        value = n;
+      } else {
+        console.warn("Invalid chart value", {
+          component: "PieChart",
+          key: "value",
+          raw,
+        });
+        value = 0;
+      }
+      return { ...d, value };
+    });
+    return (
+      <CardShell
+        title={props.title}
+        subtitle={props.description}
+        testid="declarative-pie-chart"
+      >
+        {data.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            No data available
+          </div>
+        ) : (
+          <div style={{ width: "100%", height: 200 }}>
+            <ResponsiveContainer>
+              <RechartsPieChart>
+                <Pie
+                  data={data}
+                  dataKey="value"
+                  nameKey="label"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={80}
+                  paddingAngle={2}
+                >
+                  {data.map((_, i) => (
+                    <Cell
+                      key={i}
+                      fill={CHART_COLORS[i % CHART_COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </RechartsPieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardShell>
+    );
+  },
+
+  BarChart: ({ props }) => {
+    const data = (Array.isArray(props.data) ? props.data : []).map((d) => {
+      const raw = (d as { value?: unknown }).value;
+      const n = typeof raw === "number" ? raw : parseFloat(raw as string);
+      let value: number;
+      if (Number.isFinite(n)) {
+        value = n;
+      } else {
+        console.warn("Invalid chart value", {
+          component: "BarChart",
+          key: "value",
+          raw,
+        });
+        value = 0;
+      }
+      return { ...d, value };
+    });
+    return (
+      <CardShell
+        title={props.title}
+        subtitle={props.description}
+        testid="declarative-bar-chart"
+      >
+        {data.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            No data available
+          </div>
+        ) : (
+          <div style={{ width: "100%", height: 200 }}>
+            <ResponsiveContainer>
+              <RechartsBarChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke={c.divider} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: c.muted }} />
+                <YAxis tick={{ fontSize: 11, fill: c.muted }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              </RechartsBarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardShell>
+    );
+  },
+};

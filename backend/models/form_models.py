@@ -66,6 +66,7 @@ class IntentType(str, Enum):
     SUMMARIZE_FORM = "SUMMARIZE_FORM"
     FIND_MISSING = "FIND_MISSING"
     EXPLAIN_FIELD = "EXPLAIN_FIELD"
+    PLOT_CHART = "PLOT_CHART"
     UNKNOWN = "UNKNOWN"
 
 
@@ -74,7 +75,9 @@ class IntentAnalysis(BaseModel):
     target_field_query: Optional[str] = None
     target_tab_query: Optional[str] = None
     target_value: Optional[Any] = None
+    chart_type: Optional[str] = None
     reasoning: Optional[str] = None
+
 
 
 class NodeMatchResult(BaseModel):
