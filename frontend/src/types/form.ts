@@ -6,20 +6,22 @@ export type NodeType =
   | "group"
   | "container"
   | "field"
-  | "action_button";
+  | "action_button"
+  | "upload"
+  | "slider"
+  | "segment";
 
 export type FieldType =
   | "text"
   | "number"
   | "email"
   | "phone"
-  | "select"
   | "date"
-  | "textarea"
+  | "select"
   | "checkbox"
   | "switch"
-  | "rating"
-  | "radio";
+  | "textarea"
+  | "file";
 
 export interface FormNode {
   node_id: string;
@@ -31,7 +33,12 @@ export interface FormNode {
   options?: string[];
   placeholder?: string;
   description?: string;
+  condition?: string;
   value?: any;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
   children?: FormNode[];
 }
 

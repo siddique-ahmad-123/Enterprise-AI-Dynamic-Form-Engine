@@ -131,6 +131,79 @@ async def health_check():
     }
 
 
+@app.get("/mcp/tools")
+async def get_mcp_tools():
+    """
+    Model Context Protocol (MCP) Tools Registry Endpoint.
+    Exposes tool schemas for Form Analysis, Journey Flow, Field Mutation, Review, and Submission.
+    """
+    return {
+        "tools": [
+            {
+                "name": "mcp_analyze_form_tree",
+                "description": "Inspects hierarchical form tree JSON, returning tab completion rates and field statuses.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_tree": {"type": "object", "description": "Form tree JSON hierarchy"},
+                        "field_values": {"type": "object", "description": "Current field values map"}
+                    },
+                    "required": ["form_tree", "field_values"]
+                }
+            },
+            {
+                "name": "mcp_get_journey_step",
+                "description": "Evaluates active step across all 6 tabs and generates context-aware questions.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_tree": {"type": "object", "description": "Form tree JSON hierarchy"},
+                        "field_values": {"type": "object", "description": "Current field values map"}
+                    },
+                    "required": ["form_tree", "field_values"]
+                }
+            },
+            {
+                "name": "mcp_update_form_fields",
+                "description": "Validates, type-casts, computes auto-derived fields (DOB -> Age), and mutates form state.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_tree": {"type": "object", "description": "Form tree JSON hierarchy"},
+                        "field_values": {"type": "object", "description": "Current field values map"},
+                        "updates": {"type": "array", "description": "List of field update specifications"}
+                    },
+                    "required": ["form_tree", "field_values", "updates"]
+                }
+            },
+            {
+                "name": "mcp_generate_review_data",
+                "description": "Aggregates all tabs, sections, and values for the Single-Page Review Popup.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_tree": {"type": "object", "description": "Form tree JSON hierarchy"},
+                        "field_values": {"type": "object", "description": "Current field values map"}
+                    },
+                    "required": ["form_tree", "field_values"]
+                }
+            },
+            {
+                "name": "mcp_submit_application",
+                "description": "Finalizes mortgage loan application and generates registration reference.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_tree": {"type": "object", "description": "Form tree JSON hierarchy"},
+                        "field_values": {"type": "object", "description": "Current field values map"}
+                    },
+                    "required": ["form_tree", "field_values"]
+                }
+            }
+        ]
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))

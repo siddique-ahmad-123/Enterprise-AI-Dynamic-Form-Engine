@@ -1,5 +1,5 @@
 import React from "react";
-import { Lock, Sparkles, HelpCircle, Star, ChevronDown } from "lucide-react";
+import { Lock, Sparkles, HelpCircle, Star, ChevronDown, Upload, Sliders } from "lucide-react";
 import { FormNode } from "../../types/form";
 
 interface FieldRendererProps {
@@ -25,21 +25,127 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     options = [],
     placeholder,
     description,
+    min = 0,
+    max = 100,
+    step = 1,
+    unit = "",
   } = node;
 
   const currentValue = value !== undefined && value !== null ? value : "";
 
-  // Action Button Nodes (e.g. "Search Customer", "Upload Applicant Form", "Send Consent E-mail")
+  // 1. Action Button Nodes
   if (node_type === "action_button") {
     return (
-      <div className="pt-4">
+      <div className="pt-2">
         <button
           type="button"
           onClick={() => onChange(node_id, true)}
-          className="bg-[#1e295d] hover:bg-[#151e45] text-white font-semibold text-xs px-6 py-2.5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none"
+          className="bg-[#1e295d] hover:bg-[#151e45] text-white font-semibold text-xs px-5 py-2.5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none flex items-center gap-2 cursor-pointer"
         >
-          {label}
+          <span>{label}</span>
         </button>
+      </div>
+    );
+  }
+
+  // 2. Upload Nodes
+  if (node_type === "upload" || field_type === "file") {
+    return (
+      <div className="w-full bg-[#f8fafc] border border-dashed border-slate-300 rounded-lg p-3 text-center space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <Upload className="w-4 h-4 text-indigo-600" />
+            {label}
+            {required && <span className="text-red-500 font-bold">*</span>}
+          </span>
+          <span className="text-[10px] text-slate-400 font-medium">{currentValue ? "File Attached" : "PDF / PNG / JPG"}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <input
+            type="file"
+            id={node_id}
+            disabled={readonly}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onChange(node_id, file.name);
+            }}
+            className="hidden"
+          />
+          <label
+            htmlFor={node_id}
+            className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded text-xs font-medium text-slate-700 cursor-pointer transition-colors"
+          >
+            {currentValue ? `Replace ${currentValue}` : "Browse File"}
+          </label>
+          <span className="text-xs font-mono text-emerald-700 truncate max-w-[150px]">
+            {currentValue || "No file chosen"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Segment Nodes (Options Pills / Radio Buttons)
+  if (node_type === "segment") {
+    const opts = options.length > 0 ? options : ["Yes", "No"];
+    return (
+      <div className="w-full space-y-1.5">
+        <label className="text-xs font-semibold text-slate-700 block">
+          {label}
+          {required && <span className="text-red-500 ml-1 font-bold">*</span>}
+        </label>
+        <div className="flex flex-wrap items-center gap-2 p-1 bg-[#f1f3f6] rounded-lg border border-slate-200/60 w-fit">
+          {opts.map((opt) => {
+            const isSelectedOpt = String(currentValue) === String(opt);
+            return (
+              <button
+                key={opt}
+                type="button"
+                disabled={readonly}
+                onClick={() => onChange(node_id, opt)}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  isSelectedOpt
+                    ? "bg-[#1e295d] text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+                }`}
+              >
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // 4. Slider Nodes (Interactive Range Input)
+  if (node_type === "slider") {
+    const numVal = typeof currentValue === "number" ? currentValue : Number(currentValue) || min;
+    return (
+      <div className="w-full space-y-2 bg-slate-50/80 p-3 rounded-lg border border-slate-200/60">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+            {label}
+          </label>
+          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded text-xs font-bold font-mono">
+            {numVal.toLocaleString()} {unit}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={numVal}
+          disabled={readonly}
+          onChange={(e) => onChange(node_id, Number(e.target.value))}
+          className="w-full accent-[#1e295d] h-2 bg-slate-200 rounded-lg cursor-pointer"
+        />
+        <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+          <span>{min.toLocaleString()} {unit}</span>
+          <span>{max.toLocaleString()} {unit}</span>
+        </div>
       </div>
     );
   }
@@ -53,7 +159,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     onChange(node_id, newVal);
   };
 
-  // Checkbox Consent Statements (spans full row)
+  // 5. Checkbox Field
   if (field_type === "checkbox") {
     return (
       <div className="pt-2 flex items-start gap-2.5">
@@ -109,7 +215,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
         </div>
       </div>
 
-      {/* Soft Light Input & Dropdown Control (Exact Match with Reference Screenshot) */}
+      {/* Input Controls */}
       {field_type === "select" ? (
         <div className="relative">
           <select
@@ -141,7 +247,8 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
             {currentValue ? "Yes / Approved" : "No / Pending"}
           </span>
         </label>
-      ) : field_type === "rating" ? (
+      ) : (field_type as any) === "rating" ? (
+
         <div className="flex items-center gap-1 py-1">
           {[1, 2, 3, 4, 5].map((star) => (
             <button
@@ -175,7 +282,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
         />
       ) : (
         <input
-          type={field_type === "number" ? "number" : field_type === "email" ? "email" : "text"}
+          type={field_type === "number" ? "number" : field_type === "email" ? "email" : field_type === "date" ? "date" : "text"}
           placeholder={placeholder}
           value={currentValue}
           onChange={handleChange}

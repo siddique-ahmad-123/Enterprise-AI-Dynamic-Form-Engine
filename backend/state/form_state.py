@@ -34,6 +34,10 @@ class FormAgentState(CopilotKitState):
     lastAction: Optional[Dict[str, Any]]
     pendingUpdates: Optional[Dict[str, Any]]
 
+    # ── Journey & Lifecycle State ─────────────────────────────
+    journeyStep: Optional[int]
+    journeyStatus: Optional[str]  # IN_PROGRESS | REVIEW | SUBMITTED
+
     # ── Status Flags ──────────────────────────────────────────
     isProcessing: bool
     error: Optional[str]

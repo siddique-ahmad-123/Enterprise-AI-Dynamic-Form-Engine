@@ -31,6 +31,9 @@ from services import (
     get_all_tabs,
     get_all_fields,
     split_set_command,
+    calculate_derived_fields,
+    get_next_incomplete_tab,
+    generate_review_summary,
 )
 
 
@@ -118,13 +121,17 @@ async def understand_intent_node(
 # Node 3: Traverse Form Tree
 # ─────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────
+# Node 3: Traverse Form Tree
+# ─────────────────────────────────────────────────────────────────
+
 async def traverse_tree_node(
     state: FormAgentState,
     config: RunnableConfig,
 ) -> dict:
     """
     Recursively walks the hierarchical form tree to find candidate node matches
-    based on the extracted intent and target queries.
+    based on the extracted intent and target queries (single or multi-field).
     """
     pending = state.get("pendingUpdates") or {}
     intent_data = pending.get("intent_analysis") or {}
@@ -133,18 +140,39 @@ async def traverse_tree_node(
     form_tree = state.get("formTree") or {}
     field_values = state.get("fieldValues") or {}
 
-    field_match = None
+    field_matches = []
     tab_match = None
-    match_reason = ""
     confidence = 0.0
 
     target_field_q = intent_data.get("target_field_query")
     target_tab_q = intent_data.get("target_tab_query")
+    updates_list = intent_data.get("updates") or []
 
     if intent_type in (IntentType.UPDATE_FIELD, IntentType.QUERY_FIELD, IntentType.CLEAR_FIELD, IntentType.EXPLAIN_FIELD):
-        if target_field_q:
-            matched_node, confidence, match_reason = find_field_by_query(form_tree, target_field_q, field_values)
-            field_match = matched_node
+        if updates_list:
+            for up in updates_list:
+                fq = up.get("target_field_query") if isinstance(up, dict) else getattr(up, "target_field_query", None)
+                fv = up.get("target_value") if isinstance(up, dict) else getattr(up, "target_value", None)
+                if fq:
+                    matched_node, conf, reason = find_field_by_query(form_tree, fq, field_values)
+                    if matched_node:
+                        field_matches.append({
+                            "query": fq,
+                            "target_value": fv,
+                            "node": matched_node,
+                            "confidence": conf,
+                            "reason": reason
+                        })
+        elif target_field_q:
+            matched_node, conf, reason = find_field_by_query(form_tree, target_field_q, field_values)
+            if matched_node:
+                field_matches.append({
+                    "query": target_field_q,
+                    "target_value": intent_data.get("target_value"),
+                    "node": matched_node,
+                    "confidence": conf,
+                    "reason": reason
+                })
 
     elif intent_type == IntentType.NAVIGATE_TAB:
         if target_tab_q:
@@ -152,10 +180,9 @@ async def traverse_tree_node(
 
     updated_pending = {
         **pending,
-        "field_match": field_match,
+        "field_matches": field_matches,
         "tab_match": tab_match,
         "confidence": confidence,
-        "match_reason": match_reason,
     }
     return {"pendingUpdates": updated_pending}
 
@@ -169,20 +196,20 @@ async def locate_node_node(
     config: RunnableConfig,
 ) -> dict:
     """
-    Resolves the exact target node, checks node attributes (node_id, label, readonly, required).
-    If a tab is target, updates `selectedTab`. If a field is target, selects node tab container.
+    Resolves the exact target nodes, checks node attributes (node_id, label, readonly, required).
+    If a tab is target, updates `selectedTab`. If fields are target, selects parent tab container.
     """
     pending = state.get("pendingUpdates") or {}
-    field_match = pending.get("field_match")
+    field_matches = pending.get("field_matches") or []
     tab_match = pending.get("tab_match")
 
     selected_node = None
     selected_tab = state.get("selectedTab")
 
-    if field_match:
-        selected_node = field_match.get("node_id")
-        # Try finding parent tab for field node to automatically switch tabs in UI
-        path = field_match.get("path") or []
+    if field_matches:
+        first_match = field_matches[0].get("node") or {}
+        selected_node = first_match.get("node_id")
+        path = first_match.get("path") or []
         form_tree = state.get("formTree") or {}
         tabs = get_all_tabs(form_tree)
         for tab in tabs:
@@ -218,35 +245,57 @@ async def validate_action_node(
     pending = state.get("pendingUpdates") or {}
     intent_data = pending.get("intent_analysis") or {}
     intent_type = intent_data.get("intent", IntentType.UNKNOWN)
-    field_match = pending.get("field_match")
-    target_val = intent_data.get("target_value")
+    field_matches = pending.get("field_matches") or []
 
-    is_valid = True
-    validation_error = None
-    casted_val = target_val
+    validated_updates = []
+    validation_errors = []
 
-    if intent_type == IntentType.UPDATE_FIELD and field_match:
-        # Check Readonly status
-        if field_match.get("readonly", False):
-            is_valid = False
-            field_label = field_match.get("label", "This field")
-            validation_error = f"⚠️ **{field_label}** is read-only and cannot be modified."
+    if intent_type == IntentType.UPDATE_FIELD and field_matches:
+        for item in field_matches:
+            node = item.get("node") or {}
+            raw_val = item.get("target_value")
+            label = node.get("label", "Field")
 
-        else:
-            # Validate and cast value
-            casted_val, err = validate_and_cast_value(field_match, target_val)
-            if err:
-                is_valid = False
-                validation_error = err
+            if node.get("readonly", False):
+                validation_errors.append(f"⚠️ **{label}** is read-only and cannot be modified.")
+            else:
+                casted_val, err = validate_and_cast_value(node, raw_val)
+                if err:
+                    validation_errors.append(err)
+                else:
+                    validated_updates.append({
+                        "node": node,
+                        "node_id": node.get("node_id"),
+                        "field_label": label,
+                        "query": item.get("query"),
+                        "raw_value": raw_val,
+                        "target_value": casted_val,
+                        "value": casted_val,
+                        "casted_value": casted_val
+                    })
+
+    is_valid = len(validated_updates) > 0 and len(validation_errors) == 0
 
     updated_pending = {
         **pending,
         "is_valid": is_valid,
-        "validation_error": validation_error,
-        "casted_value": casted_val,
+        "validated_updates": validated_updates,
+        "validation_errors": validation_errors,
     }
     return {"pendingUpdates": updated_pending}
 
+
+# ─────────────────────────────────────────────────────────────────
+# Node 6: Update Shared State
+# ─────────────────────────────────────────────────────────────────
+
+from mcp.tools import (
+    mcp_analyze_form_tree,
+    mcp_get_journey_step,
+    mcp_update_form_fields,
+    mcp_generate_review_data,
+    mcp_submit_application,
+)
 
 # ─────────────────────────────────────────────────────────────────
 # Node 6: Update Shared State
@@ -258,64 +307,97 @@ async def update_shared_state_node(
 ) -> dict:
     """
     Mutates the shared state (fieldValues, selectedTab, selectedNode, lastAction)
-    and streams immediate state updates to the React UI.
+    via the MCP Tools Layer and streams immediate state updates to the React UI.
     """
     pending = state.get("pendingUpdates") or {}
     intent_data = pending.get("intent_analysis") or {}
     intent_type = intent_data.get("intent", IntentType.UNKNOWN)
-    field_match = pending.get("field_match")
-    is_valid = pending.get("is_valid", True)
-    casted_val = pending.get("casted_value")
+    field_matches = pending.get("field_matches") or []
+    validated_updates = pending.get("validated_updates") or []
 
+    form_tree = state.get("formTree") or {}
     field_values = dict(state.get("fieldValues") or {})
     selected_tab = pending.get("target_selected_tab") or state.get("selectedTab")
     selected_node = pending.get("target_selected_node") or state.get("selectedNode")
     last_action = state.get("lastAction")
     history = list(state.get("conversationHistory") or [])
 
-    action_msg = ""
+    successful_updates = []
+    validation_errors = list(pending.get("validation_errors") or [])
 
-    if is_valid and intent_type == IntentType.UPDATE_FIELD and field_match:
-        node_id = field_match.get("node_id")
-        old_val = field_values.get(node_id)
-        field_values[node_id] = casted_val
-        field_label = field_match.get("label", node_id)
+    # Case 1: Consent Confirmation
+    if intent_type == IntentType.CONFIRM_CONSENT:
+        consent_updates = [
+            {"node_id": "isCheckedTermandCond", "target_value": True, "node": {"node_id": "isCheckedTermandCond", "label": "Terms & Conditions"}},
+            {"node_id": "isCheckedLifestyle", "target_value": True, "node": {"node_id": "isCheckedLifestyle", "label": "Lifestyle Verification"}},
+            {"node_id": "isCheckedPrivacy", "target_value": True, "node": {"node_id": "isCheckedPrivacy", "label": "Privacy Notice"}},
+        ]
+        field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, consent_updates)
+        successful_updates.extend(succ)
+        validation_errors.extend(errs)
 
-        action_msg = f"Updated '{field_label}' to '{casted_val}'"
-        last_action = {
-            "action_type": "UPDATE_FIELD",
-            "node_id": node_id,
-            "field_label": field_label,
-            "old_value": old_val,
-            "new_value": casted_val,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "message": action_msg
-        }
-        history.append(last_action)
+    # Case 2: Field Updates
+    elif intent_type == IntentType.UPDATE_FIELD and validated_updates:
+        field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, validated_updates)
+        successful_updates.extend(succ)
+        validation_errors.extend(errs)
 
-    elif is_valid and intent_type == IntentType.CLEAR_FIELD and field_match:
-        node_id = field_match.get("node_id")
-        old_val = field_values.get(node_id)
-        field_values[node_id] = ""
-        field_label = field_match.get("label", node_id)
+        for up in succ:
+            act = {
+                "action_type": "UPDATE_FIELD",
+                "node_id": up.get("node_id"),
+                "field_label": up.get("field_label"),
+                "old_value": up.get("old_value"),
+                "new_value": up.get("new_value"),
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": f"Updated '{up.get('field_label')}' to '{up.get('new_value')}'"
+            }
+            history.append(act)
+            last_action = act
 
-        action_msg = f"Cleared field '{field_label}'"
-        last_action = {
-            "action_type": "CLEAR_FIELD",
-            "node_id": node_id,
-            "field_label": field_label,
-            "old_value": old_val,
-            "new_value": "",
-            "timestamp": datetime.datetime.now().isoformat(),
-            "message": action_msg
-        }
-        history.append(last_action)
+    # Case 3: Clear Field
+    elif intent_type == IntentType.CLEAR_FIELD and field_matches:
+        for item in field_matches:
+            node = item.get("node") or {}
+            node_id = node.get("node_id")
+            old_val = field_values.get(node_id)
+            field_values[node_id] = ""
+            field_label = node.get("label", node_id)
+
+            act = {
+                "action_type": "CLEAR_FIELD",
+                "node_id": node_id,
+                "field_label": field_label,
+                "old_value": old_val,
+                "new_value": "",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": f"Cleared field '{field_label}'"
+            }
+            history.append(act)
+            last_action = act
 
     elif intent_type == IntentType.NAVIGATE_TAB:
         tab_match = pending.get("tab_match")
         if tab_match:
             selected_tab = tab_match.get("node_id")
-            action_msg = f"Navigated to tab '{tab_match.get('label')}'"
+
+    # ── MCP Journey Progression & Active Step Evaluation ──────────
+    journey_info = mcp_get_journey_step(form_tree, field_values)
+    journey_status = journey_info.get("journey_status", "IN_PROGRESS")
+    
+    if journey_info.get("active_tab_id"):
+        selected_tab = journey_info.get("active_tab_id")
+
+    if intent_type == IntentType.SUBMIT_APPLICATION:
+        journey_status = "SUBMITTED"
+
+    updated_pending = {
+        **pending,
+        "successful_updates": successful_updates,
+        "journey_status": journey_status,
+        "journey_info": journey_info,
+        "validation_errors": validation_errors,
+    }
 
     updates = {
         "fieldValues": field_values,
@@ -323,11 +405,13 @@ async def update_shared_state_node(
         "selectedNode": selected_node,
         "lastAction": last_action,
         "conversationHistory": history,
+        "journeyStatus": journey_status,
         "isProcessing": False,
-        "error": pending.get("validation_error"),
+        "pendingUpdates": updated_pending,
+        "error": "\n".join(validation_errors),
     }
 
-    # Emit updated state immediately so React UI updates in real-time!
+    # Stream state to React UI in real-time!
     await _emit(config, updates)
     return updates
 
@@ -347,10 +431,12 @@ async def generate_response_node(
     pending = state.get("pendingUpdates") or {}
     intent_data = pending.get("intent_analysis") or {}
     intent_type = intent_data.get("intent", IntentType.UNKNOWN)
-    validation_error = pending.get("validation_error")
-    field_match = pending.get("field_match")
+    validation_errors = pending.get("validation_errors") or []
+    field_matches = pending.get("field_matches") or []
     tab_match = pending.get("tab_match")
-    user_instruction = pending.get("user_instruction", "")
+    successful_updates = pending.get("successful_updates") or []
+    journey_status = pending.get("journey_status", "IN_PROGRESS")
+    journey_info = pending.get("journey_info") or {}
 
     form_tree = state.get("formTree") or {}
     field_values = state.get("fieldValues") or {}
@@ -358,73 +444,142 @@ async def generate_response_node(
     content = ""
     card_dict = None
 
-    # Case 1: Validation error (e.g. Readonly field violation)
-    if validation_error:
-        label = field_match.get("label", "Field") if field_match else "Field"
-        card_dict = {
-            "card_type": "validation_error",
-            "title": "Action Restricted",
-            "field_label": label,
-            "message": validation_error.replace("⚠️ ", "").replace("**", "")
-        }
-        content = validation_error
-
-    # Case 2: Update Field successful
-    elif intent_type == IntentType.UPDATE_FIELD and field_match:
-        label = field_match.get("label")
-        node_id = field_match.get("node_id")
-        val = field_values.get(node_id)
-        path = field_match.get("path", [])
-        path_str = " -> ".join(path)
+    # Case 1: Consent Confirmation
+    if intent_type == IntentType.CONFIRM_CONSENT:
+        next_step = journey_info.get("step_title", "Step 1: Personal Details – Borrower")
+        next_prompt = journey_info.get("step_prompt", "")
+        next_desc = journey_info.get("step_description", "")
 
         card_dict = {
             "card_type": "update_success",
-            "title": "Field Updated Successfully",
-            "field_label": label,
-            "new_value": str(val) if val is not None else "",
-            "node_id": node_id,
-            "path": path
+            "title": "Agreement Declarations Confirmed",
+            "field_label": "Consents & Declarations",
+            "new_value": "Agreed (Terms, Lifestyle, Privacy)",
+            "path": ["Consents & Declarations"]
         }
         content = (
-            f"✅ **Updated Field Successfully!**\n\n"
-            f"• **Field**: `{label}` (Location: *{path_str}*)\n"
-            f"• **New Value**: `{val}`\n\n"
-            f"*The form UI has been synchronized in real-time.*"
+            "✅ **Consents & Agreement Declarations Confirmed!**\n\n"
+            "I have updated the agreement checkboxes in your application form. "
+            f"We have automatically progressed to **{next_step}**.\n\n"
+            f"*{next_desc}*\n\n"
+            f"{next_prompt}"
         )
 
-    # Case 3: Clear Field
-    elif intent_type == IntentType.CLEAR_FIELD and field_match:
-        label = field_match.get("label")
-        node_id = field_match.get("node_id")
+    # Case 2: Final Submission Request
+    elif intent_type == IntentType.SUBMIT_APPLICATION or journey_status == "SUBMITTED":
+        card_dict = mcp_submit_application(form_tree, field_values)
+        app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
+        content = (
+            f"🎉 **Application Submitted Successfully!**\n\n"
+            f"• **Application Reference**: `{app_ref}`\n"
+            f"• **Applicant**: `{field_values.get('borrowerName') or 'Applicant'}`\n"
+            f"• **Status**: `Underwriting Sanction Review`\n"
+            f"• **Timestamp**: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
+            f"Thank you! Your mortgage loan application has been recorded. Our credit underwriting officer will contact you shortly."
+        )
+
+    # Case 3: Review Stage Request or Form Complete
+    elif intent_type == IntentType.REVIEW_APPLICATION or journey_status == "REVIEW":
+        card_dict = mcp_generate_review_data(form_tree, field_values)
+        content = (
+            "📋 **Application Journey Review Stage**\n\n"
+            "All sections of your application have been completed! You can inspect and modify any field across all tabs in the **Single-Page Review Popup**.\n\n"
+            "• Click the button on the card below to **Open Single-Page Review & Edit Popup**\n"
+            "• Or conversationally say: *\"Change my mobile number to 9876543210\"*\n"
+            "• When ready, reply **\"Submit Application\"** to finalize!"
+        )
+
+    # Case 4: Field Updates across any Tab
+    elif intent_type == IntentType.UPDATE_FIELD and successful_updates:
+        lines = [f"✅ **Updated {len(successful_updates)} Field(s) Successfully!**\n"]
+        has_derived = False
+
+        for item in successful_updates:
+            lines.append(f"• **{item['field_label']}**: `{item['new_value']}`")
+            if item.get("is_derived"):
+                has_derived = True
+
+        if has_derived:
+            lines.append("\n💡 *Derived fields (e.g. Age from Date of Birth) were calculated automatically.*")
+
+        lines.append("\n*Form UI synchronized in real-time.*")
+
+        if journey_status == "REVIEW":
+            lines.append("\n🎉 **All required sections are complete!**")
+            lines.append("👉 *Review your application in the **Single-Page Review Popup** or reply **\"Submit Application\"**.*")
+            card_dict = mcp_generate_review_data(form_tree, field_values)
+        else:
+            step_title = journey_info.get("step_title", "")
+            step_prompt = journey_info.get("step_prompt", "")
+            step_desc = journey_info.get("step_description", "")
+            if step_title:
+                lines.append(f"\n📌 **Next Step: {step_title}**")
+                if step_desc:
+                    lines.append(f"*{step_desc}*")
+                if step_prompt:
+                    lines.append(f"\n{step_prompt}")
+
+            first_up = successful_updates[0]
+            card_dict = {
+                "card_type": "update_success",
+                "title": f"Updated {len(successful_updates)} Field(s)",
+                "field_label": first_up["field_label"],
+                "new_value": str(first_up["new_value"]),
+                "updated_fields": [
+                    {"field_label": u["field_label"], "new_value": str(u["new_value"]), "node_id": u["node_id"]}
+                    for u in successful_updates
+                ]
+            }
+
+        content = "\n".join(lines)
+        if validation_errors:
+            content += "\n\n" + "\n".join(validation_errors)
+
+    # Case 5: Validation errors (e.g. read-only fields)
+    elif validation_errors:
+        err_msg = "\n".join(validation_errors)
+        card_dict = {
+            "card_type": "validation_error",
+            "title": "Action Restricted",
+            "message": err_msg.replace("⚠️ ", "").replace("**", "")
+        }
+        content = err_msg
+
+    # Case 6: Clear Field
+    elif intent_type == IntentType.CLEAR_FIELD and field_matches:
+        match_labels = [m.get("node", {}).get("label", "Field") for m in field_matches]
         card_dict = {
             "card_type": "clear_field",
-            "title": "Cleared Field",
-            "field_label": label,
-            "node_id": node_id
+            "title": "Cleared Field(s)",
+            "field_label": ", ".join(match_labels)
         }
-        content = f"🧹 **Cleared Field**: `{label}` value has been reset."
+        content = f"🧹 **Cleared Field(s)**: `{', '.join(match_labels)}` values have been reset."
 
-    # Case 4: Query Field
-    elif intent_type == IntentType.QUERY_FIELD and field_match:
-        label = field_match.get("label")
-        node_id = field_match.get("node_id")
-        val = field_values.get(node_id, field_match.get("value"))
-        val_display = f"`{val}`" if val is not None and val != "" else "*(empty)*"
-        readonly_tag = " [READ-ONLY]" if field_match.get("readonly") else ""
+    # Case 7: Query Field
+    elif intent_type == IntentType.QUERY_FIELD and field_matches:
+        match_info = []
+        for m in field_matches:
+            node = m.get("node") or {}
+            lbl = node.get("label", "Field")
+            nid = node.get("node_id")
+            val = field_values.get(nid, node.get("value"))
+            val_disp = f"`{val}`" if val is not None and val != "" else "*(empty)*"
+            match_info.append(f"• **{lbl}**: {val_disp}")
 
+        first_node = field_matches[0].get("node") or {}
         card_dict = {
             "card_type": "field_info",
-            "title": f"Field Information: {label}",
-            "field_label": label,
-            "value": str(val) if val is not None else "",
-            "node_id": node_id,
-            "field_type": field_match.get("field_type", "text"),
-            "readonly": field_match.get("readonly", False),
-            "required": field_match.get("required", False)
+            "title": f"Field Information: {first_node.get('label')}",
+            "field_label": first_node.get("label"),
+            "value": str(field_values.get(first_node.get("node_id"), "")),
+            "node_id": first_node.get("node_id"),
+            "field_type": first_node.get("field_type", "text"),
+            "readonly": first_node.get("readonly", False),
+            "required": first_node.get("required", False)
         }
-        content = f"🔍 **Field Information for '{label}'**{readonly_tag}:\n\n• **Current Value**: {val_display}\n• **Node ID**: `{node_id}`\n• **Field Type**: `{field_match.get('field_type', 'text')}`"
+        content = "🔍 **Field Information Query**:\n\n" + "\n".join(match_info)
 
-    # Case 5: Navigate Tab
+    # Case 8: Navigate Tab
     elif intent_type == IntentType.NAVIGATE_TAB:
         if tab_match:
             label = tab_match.get("label")
@@ -439,49 +594,51 @@ async def generate_response_node(
         else:
             content = "⚠️ Could not locate the specified tab in the form."
 
-    # Case 6: Form Summary
+    # Case 9: Form Summary
     elif intent_type == IntentType.SUMMARIZE_FORM:
         card_dict = get_form_summary_data(form_tree, field_values)
         content = generate_form_summary(form_tree, field_values)
 
-    # Case 7: Find Missing Required Fields
+    # Case 10: Find Missing Required Fields
     elif intent_type == IntentType.FIND_MISSING:
         card_dict = get_missing_fields_data(form_tree, field_values)
         content = generate_missing_fields_report(form_tree, field_values)
 
-    # Case 8: Plot Chart Analysis (PieChart / BarChart)
+    # Case 11: Plot Chart Analysis (PieChart / BarChart)
     elif intent_type == IntentType.PLOT_CHART:
         ctype = intent_data.get("chart_type", "pie_chart")
         card_dict = get_chart_analysis_data(form_tree, field_values, chart_type=ctype)
         chart_title = card_dict.get("title", "Chart Analysis")
         content = f"📊 **{chart_title}**\n\n*Rendering real-time interactive visual graph...*"
 
-    # Case 9: General fallback assistance
+    # Case 12: Proactive Initial Journey Greeting / Fallback
     else:
+        journey_info = mcp_get_journey_step(form_tree, field_values)
+        step_title = journey_info.get("step_title", "Step 0: Consents & Declarations")
+        step_desc = journey_info.get("step_description", "")
+        step_prompt = journey_info.get("step_prompt", "")
+
         card_dict = {
             "card_type": "help",
-            "title": "AI Dynamic Form Assistant",
-            "description": "I can understand and manipulate this entire dynamic form hierarchy. Select a quick command or type your prompt below:",
+            "title": "Welcome to UAE Mortgage Application System",
+            "description": "Let's complete your application step-by-step.",
             "suggestions": [
-                "Set Customer Name to John Doe",
-                "Update KYC Status to Verified",
-                "Change Risk Rating to High",
-                "Navigate to Check Eligibility tab",
-                "Show current Identity Type",
-                "Which fields are empty?",
-                "Summarize the form"
+                "Yes, I agree to the terms and declarations",
+                "My name is John Doe, DOB 1995-05-15, mobile +971501234567",
+                "Flat 402, Sunshine Apartments, MG Road, Andheri West, Mumbai, Maharashtra 400058, India",
+                "No co-borrower",
+                "I am Salaried at Emaar Properties, salary 45000",
+                "Home Purchase Loan, Amount 2500000, Tenure 240",
+                "Review application",
+                "Submit application"
             ]
         }
         content = (
-            "🤖 **AI Dynamic Form Assistant**\n\n"
-            "I can understand and manipulate this entire dynamic form hierarchy. Try asking me:\n\n"
-            "• *\"Set Customer Name to John Doe\"*\n"
-            "• *\"Update KYC Status to Verified\"*\n"
-            "• *\"Change Risk Rating to High\"*\n"
-            "• *\"Navigate to Account Info tab\"*\n"
-            "• *\"Show current Customer ID\"*\n"
-            "• *\"Which fields are empty?\"*\n"
-            "• *\"Summarize the form\"*"
+            "👋 **Welcome to the UAE Mortgage Application System!**\n\n"
+            "I am your AI Dynamic Form Assistant. I will guide you through all steps of your application.\n\n"
+            f"📋 **{step_title}**\n"
+            f"{step_desc}\n\n"
+            f"{step_prompt}"
         )
 
     final_text = content
@@ -490,4 +647,5 @@ async def generate_response_node(
         final_text = f"```json:card\n{json_str}\n```\n\n{content}"
 
     return {"messages": [AIMessage(content=final_text)], "isProcessing": False}
+
 

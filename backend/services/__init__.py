@@ -17,6 +17,10 @@ from services.form_service import (
     get_missing_fields_data,
     get_chart_analysis_data,
     split_set_command,
+    calculate_derived_fields,
+    check_tab_completed,
+    get_next_incomplete_tab,
+    generate_review_summary,
 )
 
 __all__ = [
@@ -35,6 +39,10 @@ __all__ = [
     "get_missing_fields_data",
     "get_chart_analysis_data",
     "split_set_command",
+    "calculate_derived_fields",
+    "check_tab_completed",
+    "get_next_incomplete_tab",
+    "generate_review_summary",
 ]
 
 

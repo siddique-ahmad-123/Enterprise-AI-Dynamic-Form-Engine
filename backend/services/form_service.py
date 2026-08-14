@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from models.form_models import IntentAnalysis, IntentType
+from models.form_models import IntentAnalysis, IntentType, SingleFieldUpdate
 from services.tree_traversal import (
     format_tree_as_markdown,
     get_all_fields,
@@ -36,26 +36,54 @@ def get_llm() -> ChatOpenAI:
 
 
 INTENT_SYSTEM_PROMPT = """
-You are an expert AI Form Engine Intent Classifier.
-Given a user instruction and a simplified list of form fields and tabs, classify the user's intent and extract target details.
+You are an expert Enterprise AI Dynamic Form Intent Classifier & Journey Controller.
+Given a user instruction and a dynamic hierarchical form tree, classify the user's intent and extract all field updates, answers, or queries across ALL form tabs.
+
+CRITICAL INSTRUCTIONS FOR MULTI-TAB EXTRACTIONS & CONVERSATIONAL FORM FILLING:
+1. MULTIPLE FIELD UPDATES: The user instruction MAY CONTAIN MULTIPLE FIELD UPDATES in a single turn. Extract ALL requested field updates into the `updates` array!
+2. TAB 0 (CONSENTS): If user confirms ("Yes", "I agree", "Accept"), map to agreement checkboxes: `isCheckedTermandCond`, `isCheckedLifestyle`, `isCheckedPrivacy` -> true.
+3. TAB 1 (PERSONAL DETAILS & ADDRESS):
+   - Extract Name (`borrowerName`), Date of Birth (`borrowerDOB`), Mobile (`borrowerMobileNo`), Email (`borrowerEmailId`).
+   - Unstructured Address: Decompose address into `Address Line 1`, `Address Line 2`, `City`, `State`, `PIN Code`, `Country`.
+4. TAB 2 (CO-BORROWER SELECTION):
+   - If user says "No", "No co-borrower", "I don't need a co-borrower" -> map `isCoBorrower` to "No".
+   - If user says "Yes" or provides co-borrower details -> map `isCoBorrower` to "Yes", `coBorrowerName`, `coBorrowerMobileNo`, `coBorrowerEidaNo`, etc.
+5. TAB 3 (INCOME & EMPLOYMENT):
+   - If user says "Salaried" or "Self-employed" -> map `borrowerIncomeType` to "Salaried" / "Self Employed".
+   - Extract `borrowerEmployerName`, `borrowerEmployedFrom`, `borrowerCurrentExp`, `borrowerTotalExp`, `borrowerMonthlySalaryBankTransfer` / `borrowerMonthlySalaryAECB`.
+6. TAB 4 (PRODUCT & LOAN):
+   - Extract `loanType` (e.g. "Home Purchase Loan", "Refinance"), `purpose`, `loanAmount`, `tenure`, `rateOfInterest`.
+   - Property details: `isPropertyIdentified` ("Yes"/"No"), `propertyAddressLine1`, `propertyEmirates`, `transactionAmount` (property valuation), `ownContribution` (down payment).
+7. REVIEW & SUBMISSION:
+   - "Review", "Review Application", "Show details" -> intent: `REVIEW_APPLICATION`.
+   - "Submit", "Submit Application", "Confirm and submit" -> intent: `SUBMIT_APPLICATION`.
 
 Intents:
-- UPDATE_FIELD: User wants to change, set, update, fill, or enter a value for a field.
-- QUERY_FIELD: User asks what value a field has, or asks to show/display a field value.
+- UPDATE_FIELD: User wants to change, set, update, fill, or enter values for one or more fields.
+- CONFIRM_CONSENT: User confirms agreement/declarations in Step 0.
+- REVIEW_APPLICATION: User wants to inspect or review the full application.
+- SUBMIT_APPLICATION: User wants to finalize and submit the application.
+- QUERY_FIELD: User asks what value a field has.
 - CLEAR_FIELD: User asks to clear, reset, or remove a field value.
-- NAVIGATE_TAB: User asks to go to, open, switch to, or navigate to a specific tab/section.
-- SUMMARIZE_FORM: User asks for a summary of the form, completion status, or overview.
-- FIND_MISSING: User asks which fields are empty, missing, or required.
-- EXPLAIN_FIELD: User asks for an explanation or description of a field or concept.
-- UNKNOWN: General conversation or unrelated request.
+- NAVIGATE_TAB: User asks to go to or switch to a specific tab.
+- SUMMARIZE_FORM: User asks for a summary or completion status.
+- FIND_MISSING: User asks which fields are empty or required.
+- PLOT_CHART: User asks to render a pie chart, bar chart, or graph.
+- UNKNOWN: General conversation or unrelated greeting.
 
 JSON Output Format (Strictly valid JSON):
 {
     "intent": "UPDATE_FIELD",
-    "target_field_query": "Customer Name",
+    "target_field_query": "borrowerName",
     "target_tab_query": null,
     "target_value": "John Doe",
-    "reasoning": "User explicitly asked to set Customer Name to John Doe"
+    "chart_type": null,
+    "updates": [
+        {"target_field_query": "borrowerName", "target_value": "John Doe"},
+        {"target_field_query": "borrowerDOB", "target_value": "1995-05-15"},
+        {"target_field_query": "borrowerMobileNo", "target_value": "+971501234567"}
+    ],
+    "reasoning": "Extracted personal details from conversational response"
 }
 """
 
@@ -67,12 +95,53 @@ async def analyze_user_intent(
 ) -> IntentAnalysis:
     """
     Analyzes the user's natural language input using LLM to extract intent,
-    target field query, target tab query, and target value.
+    target field queries, target tab queries, and candidate values.
+    Supports single and multi-field updates across all 6 tabs.
     """
     if not user_text:
         return IntentAnalysis(intent=IntentType.UNKNOWN)
 
     lower = user_text.lower().strip()
+
+    # Consent fast check
+    if lower in ["yes", "yep", "i agree", "agree", "accept", "sure", "ok", "confirm", "proceed", "yes i agree", "i accept", "terms", "agree with terms"]:
+        is_consent_done = field_values.get("isCheckedTermandCond") and field_values.get("isCheckedLifestyle") and field_values.get("isCheckedPrivacy")
+        if not is_consent_done:
+            return IntentAnalysis(
+                intent=IntentType.CONFIRM_CONSENT,
+                updates=[
+                    SingleFieldUpdate(target_field_query="isCheckedTermandCond", target_value=True),
+                    SingleFieldUpdate(target_field_query="isCheckedLifestyle", target_value=True),
+                    SingleFieldUpdate(target_field_query="isCheckedPrivacy", target_value=True),
+                ],
+                reasoning="Fast pattern match for consent agreement confirmation"
+            )
+
+    # Co-Borrower "No" fast check
+    if lower in ["no", "no co-borrower", "no coborrower", "no co borrower", "dont add coborrower", "don't add co-borrower", "skip co-borrower", "single applicant"]:
+        return IntentAnalysis(
+            intent=IntentType.UPDATE_FIELD,
+            target_field_query="isCoBorrower",
+            target_value="No",
+            updates=[
+                SingleFieldUpdate(target_field_query="isCoBorrower", target_value="No")
+            ],
+            reasoning="Fast pattern match for single applicant / no co-borrower selection"
+        )
+
+    # Submit application fast check
+    if any(k in lower for k in ["submit application", "submit my application", "final submit", "confirm submission", "complete application", "confirm and submit"]):
+        return IntentAnalysis(
+            intent=IntentType.SUBMIT_APPLICATION,
+            reasoning="Fast pattern match for final application submission"
+        )
+
+    # Review stage fast check
+    if any(k in lower for k in ["review application", "review my details", "show review", "check application", "open review", "review details"]):
+        return IntentAnalysis(
+            intent=IntentType.REVIEW_APPLICATION,
+            reasoning="Fast pattern match for application review stage"
+        )
 
     # Chart / Graph plot fast check
     if any(k in lower for k in ["pie chart", "bar chart", "chart", "plot", "graph", "visualize"]):
@@ -81,7 +150,7 @@ async def analyze_user_intent(
             intent=IntentType.PLOT_CHART,
             chart_type=ctype,
             reasoning="Fast pattern match for chart visualization request"
-        )
+        ) 
 
 
     # Tab navigation fast check
@@ -116,8 +185,7 @@ async def analyze_user_intent(
             reasoning="Fast pattern match for field clearing"
         )
 
-    # LLM Intent Classifier for complex commands
-
+    # LLM Intent Classifier for complex & multi-field commands
     try:
         llm = get_llm()
         tree_context = format_tree_as_markdown(form_tree, field_values)
@@ -144,26 +212,123 @@ async def analyze_user_intent(
         except ValueError:
             intent_enum = IntentType.UNKNOWN
 
+        # Build list of updates
+        raw_updates = parsed.get("updates") or []
+        updates_list = []
+        for u in raw_updates:
+            if isinstance(u, dict) and u.get("target_field_query"):
+                updates_list.append(SingleFieldUpdate(
+                    target_field_query=str(u.get("target_field_query")),
+                    target_value=u.get("target_value")
+                ))
+
+        if not updates_list and parsed.get("target_field_query"):
+            updates_list.append(SingleFieldUpdate(
+                target_field_query=str(parsed.get("target_field_query")),
+                target_value=parsed.get("target_value")
+            ))
+
         return IntentAnalysis(
             intent=intent_enum,
-            target_field_query=parsed.get("target_field_query"),
+            target_field_query=parsed.get("target_field_query") or (updates_list[0].target_field_query if updates_list else None),
             target_tab_query=parsed.get("target_tab_query"),
-            target_value=parsed.get("target_value"),
+            target_value=parsed.get("target_value") if parsed.get("target_value") is not None else (updates_list[0].target_value if updates_list else None),
+            chart_type=parsed.get("chart_type"),
+            updates=updates_list,
             reasoning=parsed.get("reasoning"),
         )
     except Exception as e:
         logger.error("Intent analysis failed: %s", e, exc_info=True)
-        # Fallback to direct field matching if user text contains "set X to Y" or "update X as Y"
-        if " to " in lower or " as " in lower or " set " in lower or " change " in lower or " update " in lower:
+        # Try address fallback parser
+        addr_updates = try_parse_address_fallback(user_text)
+        if addr_updates:
+            return IntentAnalysis(
+                intent=IntentType.UPDATE_FIELD,
+                target_field_query=addr_updates[0].target_field_query,
+                target_value=addr_updates[0].target_value,
+                updates=addr_updates,
+                reasoning="Fallback regex parsed unstructured address string"
+            )
+
+        # Fallback multi-clause splitter
+        if " to " in lower or " as " in lower or " is " in lower or " set " in lower or " update " in lower:
             field_q, val = split_set_command(user_text)
             if field_q:
+                single_up = SingleFieldUpdate(target_field_query=field_q, target_value=val)
                 return IntentAnalysis(
                     intent=IntentType.UPDATE_FIELD,
                     target_field_query=field_q,
                     target_value=val,
+                    updates=[single_up],
                     reasoning="Fallback pattern split for UPDATE_FIELD"
                 )
-        return IntentAnalysis(intent=IntentType.UNKNOWN)
+
+    return IntentAnalysis(intent=IntentType.UNKNOWN)
+
+
+def try_parse_address_fallback(text: str) -> Optional[List[SingleFieldUpdate]]:
+    """
+    Fallback regex parser for raw address strings like:
+    "Flat 402, Sunshine Apartments, MG Road, Andheri West, Mumbai, Maharashtra 400058, India"
+    """
+    import re
+    # Remove leading "address:" prefix if present
+    cleaned = re.sub(r'^(?:my address is|address is|address:|my address:)\s*', '', text, flags=re.IGNORECASE).strip()
+    parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+    if len(parts) < 3:
+        return None
+
+    # Check for pin code (e.g. 5 or 6 digits) inside parts
+    pincode_idx = -1
+    state_name = None
+    pin_val = None
+
+    for idx, part in enumerate(parts):
+        m = re.search(r'^(.*?)\s*(\b\d{5,6}\b)\s*$', part)
+        if m:
+            pincode_idx = idx
+            state_name = m.group(1).strip() or None
+            pin_val = m.group(2).strip()
+            break
+
+    if pincode_idx == -1:
+        return None
+
+    city_idx = pincode_idx - 1
+    city_val = parts[city_idx] if city_idx >= 0 else None
+
+    addr_parts = parts[:city_idx]
+    if not addr_parts:
+        return None
+
+    if len(addr_parts) == 1:
+        addr1 = addr_parts[0]
+        addr2 = ""
+    elif len(addr_parts) == 2:
+        addr1 = addr_parts[0]
+        addr2 = addr_parts[1]
+    else:
+        mid = len(addr_parts) // 2
+        addr1 = ", ".join(addr_parts[:mid])
+        addr2 = ", ".join(addr_parts[mid:])
+
+    country_val = parts[-1] if len(parts) > pincode_idx + 1 else None
+
+    updates = []
+    if addr1:
+        updates.append(SingleFieldUpdate(target_field_query="Address Line 1", target_value=addr1))
+    if addr2:
+        updates.append(SingleFieldUpdate(target_field_query="Address Line 2", target_value=addr2))
+    if city_val:
+        updates.append(SingleFieldUpdate(target_field_query="City", target_value=city_val))
+    if state_name:
+        updates.append(SingleFieldUpdate(target_field_query="State", target_value=state_name))
+    if pin_val:
+        updates.append(SingleFieldUpdate(target_field_query="PIN Code", target_value=pin_val))
+    if country_val:
+        updates.append(SingleFieldUpdate(target_field_query="Country", target_value=country_val))
+
+    return updates if updates else None
 
 
 def re_extract_target(text: str, prefixes: List[str]) -> str:
@@ -447,4 +612,142 @@ def get_chart_analysis_data(form_tree: Dict[str, Any], field_values: Dict[str, A
             "description": f"Real-time completion status across {len(fields)} total form fields.",
             "data": data
         }
+
+
+import datetime
+
+def calculate_derived_fields(field_values: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Automatically calculates derived fields such as age from Date of Birth.
+    Returns dictionary of newly calculated derived field updates.
+    """
+    derived_updates = {}
+
+    # Calculate Age from borrowerDOB
+    dob = field_values.get("borrowerDOB")
+    if dob and isinstance(dob, str) and dob.strip():
+        try:
+            birth_year = None
+            if "-" in dob:
+                parts = dob.split("-")
+                if len(parts[0]) == 4:
+                    birth_year = int(parts[0])
+                elif len(parts) > 2 and len(parts[2]) == 4:
+                    birth_year = int(parts[2])
+            elif dob.isdigit() and len(dob) == 4:
+                birth_year = int(dob)
+
+            if birth_year:
+                current_year = datetime.datetime.now().year
+                calc_age = current_year - birth_year
+                if 18 <= calc_age <= 100:
+                    derived_updates["borrowerAge"] = calc_age
+        except Exception as e:
+            logger.debug("Failed to calculate age from DOB '%s': %s", dob, e)
+
+    return derived_updates
+
+
+TAB_JOURNEY_SEQUENCE = [
+    "tab_consents",
+    "tab_personal_borrower",
+    "tab_personal_coborrower",
+    "tab_income_borrower",
+    "tab_product_loan",
+    "tab_decision",
+]
+
+
+def check_tab_completed(tab_id: str, form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> bool:
+    """
+    Checks if all required fields in the specified tab are filled.
+    """
+    tabs = get_all_tabs(form_tree)
+    target_tab = None
+    for tab in tabs:
+        if tab.get("node_id") == tab_id:
+            target_tab = tab
+            break
+
+    if not target_tab:
+        return False
+
+    fields = get_all_fields(target_tab)
+    for f in fields:
+        if f.get("required") and not f.get("readonly"):
+            nid = f.get("node_id")
+            val = field_values.get(nid, f.get("value"))
+            if val is None or val == "" or val is False or val == []:
+                return False
+    return True
+
+
+def get_next_incomplete_tab(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Returns the next incomplete tab node in the progressive journey.
+    """
+    tabs = get_all_tabs(form_tree)
+    tab_map = {t.get("node_id"): t for t in tabs}
+
+    for tab_id in TAB_JOURNEY_SEQUENCE:
+        if tab_id in tab_map and not check_tab_completed(tab_id, form_tree, field_values):
+            return tab_map[tab_id]
+    return None
+
+
+def generate_review_summary(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+    """
+    Renders an interactive Review Stage Summary Card and Markdown report
+    presenting all collected details to the user for final confirmation.
+    """
+    fields = get_all_fields(form_tree)
+    review_groups: Dict[str, List[Dict[str, Any]]] = {}
+
+    for f in fields:
+        nid = f.get("node_id")
+        label = f.get("label", nid)
+        path = f.get("path") or []
+        tab_name = path[1] if len(path) > 1 else "General Information"
+        val = field_values.get(nid, f.get("value"))
+
+        if val is True:
+            val_str = "Checked / Agreed"
+        elif val is False:
+            val_str = "Not Agreed"
+        elif val is not None and str(val).strip() != "":
+            val_str = str(val)
+        else:
+            val_str = "Not Provided"
+
+        if tab_name not in review_groups:
+            review_groups[tab_name] = []
+        review_groups[tab_name].append({"label": label, "value": val_str, "node_id": nid})
+
+    card_dict = {
+        "card_type": "review_summary",
+        "title": "📋 Application Journey Review",
+        "subtitle": "Please review all collected details below before final submission.",
+        "groups": [
+            {
+                "group_title": group_title,
+                "fields": items
+            }
+            for group_title, items in review_groups.items()
+        ]
+    }
+
+    lines = ["📋 **Application Journey Review Summary**\n"]
+    lines.append("Please verify your application details below:\n")
+
+    for group_title, items in review_groups.items():
+        lines.append(f"### 📌 {group_title}")
+        for item in items:
+            val_disp = f"`{item['value']}`" if item['value'] != "Not Provided" else "*(empty)*"
+            lines.append(f"• **{item['label']}**: {val_disp}")
+        lines.append("")
+
+    lines.append("💡 *If any detail is incorrect, simply let me know (e.g., \"My mobile number is wrong; change it to 9876543210\").*")
+    lines.append("✨ *If everything looks correct, reply **\"Confirm\"** or **\"Submit Application\"** to complete your application.*")
+
+    return card_dict, "\n".join(lines)
 

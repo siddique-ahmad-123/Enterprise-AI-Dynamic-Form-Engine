@@ -6,12 +6,15 @@ interface QuickActionsProps {
 }
 
 const PRESET_PROMPTS = [
-  "Set Customer Name to John Doe",
-  "Update Customer ID as CUST10293",
-  "Change Risk Rating to High",
-  "Update KYC Status to Verified",
-  "Change Account Balance to 50000",
-  "Navigate to Account Info tab",
+  "Yes, I agree to the terms and declarations",
+  "My name is John Doe, DOB 1995-05-15, mobile +971501234567, email john@example.com",
+  "Flat 402, Sunshine Apartments, MG Road, Andheri West, Mumbai, Maharashtra 400058, India",
+  "No co-borrower",
+  "I am Salaried at Emaar Properties, employed from 2020-01-15, monthly salary 45000",
+  "Home Purchase Loan, amount 2500000, tenure 240, rate 4.5",
+  "My mobile number is wrong; change it to +971509876543",
+  "Review application",
+  "Submit Application",
   "Which fields are empty?",
   "Summarize the form",
 ];

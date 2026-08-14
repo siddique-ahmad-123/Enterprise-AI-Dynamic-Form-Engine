@@ -25,8 +25,8 @@ def normalize_key(text: str) -> str:
     """
     if not text:
         return ""
-    # Strip common prefixes like 'tab_', 'sec_', 'field_'
-    cleaned = re.sub(r'^(field_|tab_|sec_|group_|panel_|container_)', '', text, flags=re.IGNORECASE)
+    # Strip common prefixes like 'tab_', 'sec_', 'field_', 'borrower', 'coBorrower'
+    cleaned = re.sub(r'^(field_|tab_|sec_|group_|panel_|container_|borrower|coBorrower)', '', text, flags=re.IGNORECASE)
     # Remove all non-alphanumeric characters and lowercase
     return re.sub(r'[^a-zA-Z0-9]', '', cleaned).lower()
 
@@ -74,11 +74,11 @@ def flatten_tree(root: Any, parent_path: Optional[List[str]] = None) -> List[Dic
 
 
 def get_all_fields(root: Any) -> List[Dict[str, Any]]:
-    """Recursively extracts all field nodes from the tree."""
+    """Recursively extracts all field, segment, and slider nodes from the tree."""
     all_nodes = flatten_tree(root)
     return [
         node for node in all_nodes
-        if node.get("node_type") == "field" or node.get("field_type") is not None
+        if node.get("node_type") in ["field", "segment", "slider"] or node.get("field_type") is not None
     ]
 
 

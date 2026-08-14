@@ -16,6 +16,8 @@ import {
   Layers,
   Search,
   Lock,
+  FileText,
+  Edit3,
 } from "lucide-react";
 import {
   PieChart as RechartsPieChart,
@@ -47,8 +49,13 @@ export interface CardData {
     | "pie_chart"
     | "bar_chart"
     | "data_table"
-    | "metric";
+    | "metric"
+    | "review_summary"
+    | "submission_success";
   title?: string;
+  reference_id?: string;
+  applicant_name?: string;
+  submission_date?: string;
   field_label?: string;
   new_value?: string;
   value?: string;
@@ -64,6 +71,8 @@ export interface CardData {
   filled_fields?: number;
   readonly_fields?: number;
   percentage?: number;
+  tabs?: Array<any>;
+  updated_fields?: Array<{ field_label: string; new_value: string; node_id?: string }>;
   field_items?: Array<{ node_id: string; label: string; value: string; readonly?: boolean }>;
   missing_required?: string[];
   empty_optional?: string[];
@@ -507,6 +516,114 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
             <span className="font-medium text-slate-700">Form UI Synchronized</span>
           </div>
           <span className="text-[11px] text-slate-400 font-mono">Live CoAgent Sync</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 1.1 REVIEW SUMMARY STAGE CARD
+  // ─────────────────────────────────────────────────────────────
+  if (cardData.card_type === "review_summary") {
+    const handleOpenReview = () => {
+      window.dispatchEvent(new CustomEvent("open-review-modal"));
+    };
+
+    return (
+      <div className="bg-white rounded-xl border border-blue-200 shadow-lg shadow-blue-500/10 overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 px-4 py-3.5 text-white flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-blue-500/30 rounded-xl border border-blue-400/30">
+              <FileText className="w-5 h-5 text-blue-200" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm text-white">Application Journey Review</h4>
+              <span className="text-[11px] text-blue-200">All 6 tabs are ready for final verification</span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded-full text-[10px] font-bold uppercase tracking-wider">
+            Review Ready
+          </span>
+        </div>
+
+        <div className="p-4 space-y-3.5 text-xs">
+          <p className="text-slate-600 leading-relaxed">
+            All required steps of your application have been completed. You can view, verify, and modify any detail across all tabs in our **Single-Page Review & Edit Popup**.
+          </p>
+
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              onClick={handleOpenReview}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Edit3 className="w-4 h-4" />
+              Open Single-Page Review & Edit Popup
+            </button>
+
+            <button
+              onClick={() => onSelectPrompt?.("Submit Application")}
+              className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-slate-900 hover:bg-black text-white font-semibold rounded-xl shadow-xs transition-all cursor-pointer text-xs"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              Confirm & Submit Application
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <span>💡 Or correct conversationally: "Change mobile to..."</span>
+          <span className="font-mono text-blue-600 font-semibold">Step 6 / 6</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 1.2 SUBMISSION SUCCESS CARD
+  // ─────────────────────────────────────────────────────────────
+  if (cardData.card_type === "submission_success") {
+    return (
+      <div className="bg-white rounded-xl border border-emerald-300 shadow-xl shadow-emerald-500/10 overflow-hidden">
+        <div className="bg-gradient-to-r from-emerald-800 to-teal-900 px-4 py-4 text-white flex items-center gap-3">
+          <div className="p-2.5 bg-white/20 rounded-2xl shadow-inner">
+            <CheckCircle2 className="w-6 h-6 text-emerald-200" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest block">Application Finalized</span>
+            <h4 className="font-extrabold text-base text-white">Application Submitted Successfully 🎉</h4>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3 text-xs">
+          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
+            <span className="text-[11px] text-slate-500 block mb-0.5">Official Reference ID</span>
+            <span className="text-base font-black font-mono text-emerald-800 tracking-wider">
+              {cardData.reference_id || "APP-2026-0001"}
+            </span>
+          </div>
+
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between py-1 border-b border-slate-100">
+              <span className="text-slate-500">Status</span>
+              <span className="font-bold text-slate-800 bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-200 text-[11px]">
+                Underwriting Sanction Review
+              </span>
+            </div>
+            {cardData.applicant_name && (
+              <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Applicant</span>
+                <span className="font-semibold text-slate-800">{cardData.applicant_name}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-1">
+              <span className="text-slate-500">Submission Date</span>
+              <span className="font-mono text-slate-700">{cardData.submission_date || new Date().toLocaleString()}</span>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-500 text-center pt-2">
+            Your application is now under review with Newgen Credit Division.
+          </p>
         </div>
       </div>
     );

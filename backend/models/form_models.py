@@ -18,6 +18,10 @@ class NodeType(str, Enum):
     GROUP = "group"
     CONTAINER = "container"
     FIELD = "field"
+    ACTION_BUTTON = "action_button"
+    UPLOAD = "upload"
+    SLIDER = "slider"
+    SEGMENT = "segment"
 
 
 class FieldType(str, Enum):
@@ -32,6 +36,7 @@ class FieldType(str, Enum):
     SWITCH = "switch"
     RATING = "rating"
     RADIO = "radio"
+    FILE = "file"
 
 
 class FormNode(BaseModel):
@@ -48,11 +53,17 @@ class FormNode(BaseModel):
     options: Optional[List[str]] = None
     placeholder: Optional[str] = None
     description: Optional[str] = None
+    condition: Optional[str] = None
     value: Optional[Any] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
+    unit: Optional[str] = None
     children: Optional[List["FormNode"]] = Field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True
+
 
 
 FormNode.model_rebuild()
@@ -67,7 +78,15 @@ class IntentType(str, Enum):
     FIND_MISSING = "FIND_MISSING"
     EXPLAIN_FIELD = "EXPLAIN_FIELD"
     PLOT_CHART = "PLOT_CHART"
+    CONFIRM_CONSENT = "CONFIRM_CONSENT"
+    REVIEW_APPLICATION = "REVIEW_APPLICATION"
+    SUBMIT_APPLICATION = "SUBMIT_APPLICATION"
     UNKNOWN = "UNKNOWN"
+
+
+class SingleFieldUpdate(BaseModel):
+    target_field_query: str
+    target_value: Optional[Any] = None
 
 
 class IntentAnalysis(BaseModel):
@@ -76,7 +95,9 @@ class IntentAnalysis(BaseModel):
     target_tab_query: Optional[str] = None
     target_value: Optional[Any] = None
     chart_type: Optional[str] = None
+    updates: List[SingleFieldUpdate] = Field(default_factory=list)
     reasoning: Optional[str] = None
+
 
 
 
