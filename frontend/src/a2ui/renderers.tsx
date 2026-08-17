@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import type { CatalogRenderers } from "@copilotkit/a2ui-renderer";
 import { AlertTriangle, AlertCircle, CheckCircle2, Info } from "lucide-react";
-
 import type { MyDefinitions } from "./definitions";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -111,7 +110,7 @@ export const myRenderers: CatalogRenderers<MyDefinitions> = {
           <div key={`${id}-${i}`} style={{ flex: "1 1 0", minWidth: 0 }}>
             {children(id)}
           </div>
-        ))}
+        ))} 
       </div>
     );
   },
