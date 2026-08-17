@@ -6,7 +6,7 @@ interface SectionRendererProps {
   node: FormNode;
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
-  selectedNode: string | null;
+  selectedNode: string | string[] | null;
 }
 
 export const SectionRenderer: React.FC<SectionRendererProps> = ({

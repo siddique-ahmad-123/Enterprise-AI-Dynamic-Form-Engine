@@ -89,11 +89,19 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   if (node_type === "segment") {
     const opts = options.length > 0 ? options : ["Yes", "No"];
     return (
-      <div className="w-full space-y-1.5">
-        <label className="text-xs font-semibold text-slate-700 block">
-          {label}
-          {required && <span className="text-red-500 ml-1 font-bold">*</span>}
-        </label>
+      <div className={`w-full space-y-1.5 transition-all duration-300 relative rounded-xl p-2 ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/50 shadow-md shadow-indigo-500/10 border border-indigo-200" : ""}`}>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-slate-700 block">
+            {label}
+            {required && <span className="text-red-500 ml-1 font-bold">*</span>}
+          </label>
+          {isSelected && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white shadow-xs animate-pulse">
+              <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
+              AI Focused
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2 p-1 bg-[#f1f3f6] rounded-lg border border-slate-200/60 w-fit">
           {opts.map((opt) => {
             const isSelectedOpt = String(currentValue) === String(opt);
@@ -122,15 +130,23 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   if (node_type === "slider") {
     const numVal = typeof currentValue === "number" ? currentValue : Number(currentValue) || min;
     return (
-      <div className="w-full space-y-2 bg-slate-50/80 p-3 rounded-lg border border-slate-200/60">
+      <div className={`w-full space-y-2 bg-slate-50/80 p-3 rounded-lg border border-slate-200/60 transition-all duration-300 relative ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/50 shadow-md shadow-indigo-500/10 border border-indigo-200" : ""}`}>
         <div className="flex items-center justify-between">
           <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-indigo-600" />
             {label}
           </label>
-          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded text-xs font-bold font-mono">
-            {numVal.toLocaleString()} {unit}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {isSelected && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white shadow-xs animate-pulse">
+                <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
+                AI Focused
+              </span>
+            )}
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded text-xs font-bold font-mono">
+              {numVal.toLocaleString()} {unit}
+            </span>
+          </div>
         </div>
         <input
           type="range"
@@ -162,7 +178,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   // 5. Checkbox Field
   if (field_type === "checkbox") {
     return (
-      <div className="pt-2 flex items-start gap-2.5">
+      <div className={`pt-2 flex items-start gap-2.5 transition-all duration-300 rounded-xl p-2 ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/50 shadow-md shadow-indigo-500/10 border border-indigo-200" : ""}`}>
         <input
           type="checkbox"
           id={node_id}
@@ -171,15 +187,23 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           disabled={readonly}
           className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#1e295d] focus:ring-[#1e295d] cursor-pointer"
         />
-        <label htmlFor={node_id} className="text-xs text-slate-700 leading-relaxed cursor-pointer select-none">
-          {description || label}
-        </label>
+        <div className="flex-1 flex items-center justify-between">
+          <label htmlFor={node_id} className="text-xs text-slate-700 leading-relaxed cursor-pointer select-none">
+            {description || label}
+          </label>
+          {isSelected && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white shadow-xs animate-pulse shrink-0">
+              <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
+              AI Focused
+            </span>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={`w-full transition-all relative ${isSelected ? "ring-2 ring-[#1e295d] rounded-lg p-1" : ""}`}>
+    <div className={`w-full transition-all duration-300 relative rounded-xl p-2 ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/50 shadow-md shadow-indigo-500/10 border border-indigo-200" : ""}`}>
       {/* Field Label */}
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1">
@@ -200,8 +224,8 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
 
         <div className="flex items-center gap-1">
           {isSelected && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-900">
-              <Sparkles className="w-3 h-3" />
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white shadow-xs animate-pulse">
+              <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
               AI Focused
             </span>
           )}

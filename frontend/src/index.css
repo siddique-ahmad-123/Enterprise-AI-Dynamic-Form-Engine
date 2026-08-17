@@ -15,8 +15,48 @@ body {
   --copilot-kit-primary-color: #1e295d;
   --copilot-kit-background-color: #ffffff;
   --copilot-kit-contrast-color: #0f172a;
-  --copilot-kit-secondary-color: #f1f5f9;
+  --copilot-kit-secondary-color: #f8fafc;
   font-family: 'Inter', sans-serif !important;
+}
+
+/* Hide annoying version update warning banner at top of chat */
+.copilotKitVersionBanner,
+[class*="copilotKitVersion"],
+[class*="DevConsole"],
+[class*="copilotKitDev"] {
+  display: none !important;
+}
+
+/* High contrast Header Bar for CopilotKit Chat */
+.copilotKitHeader {
+  background: linear-gradient(135deg, #1e295d 0%, #0f172a 100%) !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  padding: 14px 18px !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2) !important;
+}
+
+.copilotKitHeader * {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.copilotKitHeader button {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-radius: 8px !important;
+  padding: 4px 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+.copilotKitHeader button:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Smooth Chat Messages Container */
+.copilotKitMessages {
+  scroll-behavior: smooth !important;
+  padding: 16px !important;
+  background-color: #f8fafc !important;
 }
 
 /* Make custom message card containers span full width without generic bubble backgrounds */
@@ -29,6 +69,26 @@ body {
   width: 100% !important;
 }
 
+/* Sleek Input Textarea Container */
+.copilotKitInput {
+  border-top: 1px solid #e2e8f0 !important;
+  background-color: #ffffff !important;
+  padding: 12px 16px !important;
+}
+
+.copilotKitInput textarea {
+  border-radius: 12px !important;
+  border: 1px solid #cbd5e1 !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease !important;
+}
+
+.copilotKitInput textarea:focus {
+  border-color: #1e295d !important;
+  box-shadow: 0 0 0 3px rgba(30, 41, 93, 0.12) !important;
+}
+
 /* Custom scrollbar hiding for horizontal tabs */
 .scrollbar-none::-webkit-scrollbar {
   display: none;
@@ -39,7 +99,7 @@ body {
 }
 
 .scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background: #cbd5e1;

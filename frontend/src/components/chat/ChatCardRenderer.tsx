@@ -149,7 +149,23 @@ export function parseMessageToCardData(content: string): CardData | null {
 
   // 4. Fallback Markdown pattern parser
   // Case: Update success
-  if (content.includes("Updated Field Successfully") || content.includes("✅")) {
+  if (content.includes("Updated") && (content.includes("Field") || content.includes("✅"))) {
+    // Check for bullet point list of updates: • **Field Label**: `value`
+    const bulletMatches = Array.from(content.matchAll(/•\s*\*\*([^*]+)\*\*:?\s*`([^`]+)`/g));
+    if (bulletMatches.length > 0) {
+      const updatedFields = bulletMatches.map((m) => ({
+        field_label: m[1].trim(),
+        new_value: m[2].trim(),
+      }));
+      return {
+        card_type: "update_success",
+        title: updatedFields.length > 1 ? `Updated ${updatedFields.length} Fields Successfully` : "Field Updated Successfully",
+        field_label: updatedFields[0].field_label,
+        new_value: updatedFields[0].new_value,
+        updated_fields: updatedFields,
+      };
+    }
+
     const fieldMatch = content.match(/Field\*\*:?\s*`([^`]+)`/i) || content.match(/Field:\s*`([^`]+)`/i);
     const valMatch = content.match(/New Value\*\*:?\s*`([^`]+)`/i) || content.match(/New Value:\s*`([^`]+)`/i);
     const locationMatch = content.match(/Location:\s*\*?([^\*\n]+)\*?/i);
@@ -166,6 +182,7 @@ export function parseMessageToCardData(content: string): CardData | null {
         field_label: fieldMatch[1],
         new_value: valMatch ? valMatch[1] : "",
         path: pathArr,
+        updated_fields: [{ field_label: fieldMatch[1], new_value: valMatch ? valMatch[1] : "" }],
       };
     }
   }
@@ -444,6 +461,19 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
   // 1. UPDATE SUCCESS CARD
   // ─────────────────────────────────────────────────────────────
   if (cardData.card_type === "update_success") {
+    const fieldsList =
+      cardData.updated_fields && cardData.updated_fields.length > 0
+        ? cardData.updated_fields
+        : cardData.field_label
+        ? [{ field_label: cardData.field_label, new_value: cardData.new_value || "" }]
+        : [];
+
+    const isMulti = fieldsList.length > 1;
+    const titleText =
+      cardData.title || (isMulti ? `Updated ${fieldsList.length} Fields Successfully` : "Field Updated Successfully");
+
+    const copyText = fieldsList.map((f) => `${f.field_label}: ${f.new_value}`).join("\n");
+
     return (
       <div className="bg-white rounded-xl border border-emerald-200/80 shadow-md shadow-emerald-500/5 overflow-hidden transition-all duration-200">
         {/* Header Banner */}
@@ -456,11 +486,11 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
               <span className="text-xs font-semibold text-emerald-100 uppercase tracking-wider block">
                 Real-Time Update
               </span>
-              <h4 className="font-bold text-sm leading-tight text-white">Field Updated Successfully</h4>
+              <h4 className="font-bold text-sm leading-tight text-white">{titleText}</h4>
             </div>
           </div>
           <button
-            onClick={() => handleCopy(`${cardData.field_label}: ${cardData.new_value}`)}
+            onClick={() => handleCopy(copyText)}
             className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-md transition-colors"
             title="Copy update details"
           >
@@ -470,19 +500,40 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
 
         {/* Card Body */}
         <div className="p-4 space-y-3 bg-gradient-to-b from-emerald-50/30 to-white">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <span className="text-xs text-slate-500 font-medium">Target Field</span>
-              <div className="font-bold text-slate-900 text-base">{cardData.field_label}</div>
+          {fieldsList.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
+                <span>Target Field{isMulti ? `s (${fieldsList.length})` : ""}</span>
+                <span>New Value</span>
+              </div>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {fieldsList.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-white border border-slate-200/80 shadow-xs"
+                  >
+                    <span className="font-bold text-slate-800 text-xs sm:text-sm">{item.field_label}</span>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300/80">
+                      {item.new_value || "(empty)"}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-
-            <div className="text-right">
-              <span className="text-xs text-slate-500 font-medium block mb-1">New Value</span>
-              <span className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold bg-emerald-100 text-emerald-900 border border-emerald-300/80 shadow-xs">
-                {cardData.new_value || "(empty)"}
-              </span>
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <span className="text-xs text-slate-500 font-medium">Target Field</span>
+                <div className="font-bold text-slate-900 text-base">{cardData.field_label}</div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-500 font-medium block mb-1">New Value</span>
+                <span className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold bg-emerald-100 text-emerald-900 border border-emerald-300/80 shadow-xs">
+                  {cardData.new_value || "(empty)"}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Breadcrumb Path */}
           {cardData.path && cardData.path.length > 0 && (

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { FormNode, FormAction } from "../../types/form";
 import { TabRenderer } from "./TabRenderer";
+import { isTabMandatoryComplete } from "../../hooks/useFormState";
 
 interface FormRendererProps {
   formTree: FormNode;
@@ -15,7 +16,7 @@ interface FormRendererProps {
   selectedTab: string;
   onTabChange: (tabId: string) => void;
   onFieldChange: (nodeId: string, value: any) => void;
-  selectedNode: string | null;
+  selectedNode: string | string[] | null;
   lastAction: FormAction | null;
   isProcessing?: boolean;
 }
@@ -138,7 +139,7 @@ export const FormRenderer: React.FC<FormRendererProps> = ({
           >
             {tabs.map((tab, idx) => {
               const isActive = tab.node_id === selectedTab;
-              const isCompleted = idx < currentTabIndex;
+              const isCompleted = isTabMandatoryComplete(tab, fieldValues);
 
               return (
                 <button

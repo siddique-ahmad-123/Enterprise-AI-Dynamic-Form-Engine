@@ -7,7 +7,7 @@ interface TabRendererProps {
   tabNode: FormNode;
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
-  selectedNode: string | null;
+  selectedNode: string | string[] | null;
 }
 
 export const TabRenderer: React.FC<TabRendererProps> = ({

@@ -56,7 +56,7 @@ export interface FormAgentState {
   formTree: FormNode;
   fieldValues: Record<string, any>;
   selectedTab: string;
-  selectedNode: string | null;
+  selectedNode: string | string[] | null;
   conversationHistory: FormAction[];
   lastAction: FormAction | null;
   pendingUpdates?: Record<string, any>;

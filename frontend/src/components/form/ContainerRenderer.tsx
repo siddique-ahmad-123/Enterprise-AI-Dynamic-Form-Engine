@@ -6,7 +6,7 @@ interface ContainerRendererProps {
   node: FormNode;
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
-  selectedNode: string | null;
+  selectedNode: string | string[] | null;
 }
 
 export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
@@ -18,12 +18,16 @@ export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
   const { node_type, label, children = [], description } = node;
 
   if (node_type === "field" || node_type === "action_button") {
+    const isSelected = Array.isArray(selectedNode)
+      ? selectedNode.includes(node.node_id)
+      : selectedNode === node.node_id;
+
     return (
       <FieldRenderer
         node={node}
         value={fieldValues[node.node_id]}
         onChange={onFieldChange}
-        isSelected={selectedNode === node.node_id}
+        isSelected={isSelected}
       />
     );
   }

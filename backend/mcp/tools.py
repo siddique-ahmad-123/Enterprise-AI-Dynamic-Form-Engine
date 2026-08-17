@@ -23,6 +23,8 @@ from services.tree_traversal import (
     flatten_tree,
 )
 
+from services.form_service import check_tab_completed
+
 logger = logging.getLogger(__name__)
 
 # Standard Tab Journey Sequence across all 6 steps
@@ -59,7 +61,7 @@ TAB_QUESTION_CONFIG = {
         "title": "Step 3: Income Details – Borrower",
         "description": "Let's capture your employment and income information.",
         "prompt": "👉 *Are you **Salaried** or **Self Employed**? Please also share your **Employer Name**, **Employed From Date**, and **Monthly Salary (AED)**.*",
-        "required_fields": ["borrowerIncomeType"],
+        "required_fields": ["borrowerIncomeType", "borrowerEmployerName", "borrowerMonthlySalaryBankTransfer"],
     },
     "tab_product_loan": {
         "title": "Step 4: Product & Loan Details",
@@ -142,28 +144,7 @@ def mcp_get_journey_step(form_tree: Dict[str, Any], field_values: Dict[str, Any]
         if not tab_node:
             continue
             
-        # Check if tab is complete
-        tab_fields = get_all_fields(tab_node)
-        is_complete = True
-        
-        # Special logic for Co-Borrower tab: if isCoBorrower == 'No' or empty, consider requirement checked once isCoBorrower is answered
-        if tab_id == "tab_personal_coborrower":
-            is_coborrower_val = field_values.get("isCoBorrower")
-            if not is_coborrower_val:
-                is_complete = False
-            elif is_coborrower_val == "Yes":
-                # Check co-borrower required fields
-                for fid in ["coBorrowerName", "coBorrowerMobileNo", "coBorrowerEidaNo"]:
-                    if not field_values.get(fid):
-                        is_complete = False
-                        break
-        else:
-            for f in tab_fields:
-                if f.get("required") and not f.get("readonly"):
-                    val = field_values.get(f.get("node_id"), f.get("value"))
-                    if val is None or val == "" or val is False or val == []:
-                        is_complete = False
-                        break
+        is_complete = check_tab_completed(tab_id, form_tree, field_values)
 
         if not is_complete:
             config = TAB_QUESTION_CONFIG.get(tab_id, {

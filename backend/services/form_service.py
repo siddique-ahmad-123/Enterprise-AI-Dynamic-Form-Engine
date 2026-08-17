@@ -660,7 +660,8 @@ TAB_JOURNEY_SEQUENCE = [
 
 def check_tab_completed(tab_id: str, form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> bool:
     """
-    Checks if all required fields in the specified tab are filled.
+    Checks if all required fields in the specified tab are filled, taking into account
+    conditional section visibility.
     """
     tabs = get_all_tabs(form_tree)
     target_tab = None
@@ -672,14 +673,48 @@ def check_tab_completed(tab_id: str, form_tree: Dict[str, Any], field_values: Di
     if not target_tab:
         return False
 
-    fields = get_all_fields(target_tab)
-    for f in fields:
-        if f.get("required") and not f.get("readonly"):
-            nid = f.get("node_id")
-            val = field_values.get(nid, f.get("value"))
-            if val is None or val == "" or val is False or val == []:
+    # Special logic for Co-Borrower tab
+    if tab_id == "tab_personal_coborrower":
+        is_coborrower_val = field_values.get("isCoBorrower")
+        if not is_coborrower_val or is_coborrower_val == "" or is_coborrower_val == "Select":
+            return False
+        if is_coborrower_val == "No":
+            return True
+        for fid in ["coBorrowerName", "coBorrowerMobileNo", "coBorrowerEidaNo"]:
+            val = field_values.get(fid)
+            if val is None or val == "" or val == "Select":
                 return False
-    return True
+        return True
+
+    def is_condition_met(node: Dict[str, Any]) -> bool:
+        cond = node.get("condition")
+        if not cond:
+            return True
+        if "===" in cond:
+            parts = [p.strip().strip("'\"") for p in cond.split("===")]
+            if len(parts) == 2:
+                var_name, expected_val = parts[0], parts[1]
+                return str(field_values.get(var_name, "")) == expected_val
+        return True
+
+    def check_node(node: Dict[str, Any]) -> bool:
+        if not is_condition_met(node):
+            return True  # Hidden container, required fields inside do not block
+
+        if node.get("required") and not node.get("readonly") and node.get("node_type") in ("field", "upload", "segment"):
+            nid = node.get("node_id")
+            val = field_values.get(nid, node.get("value"))
+            if val is None or val == "" or val is False or val == [] or val == "Select":
+                return False
+
+        children = node.get("children") or []
+        for child in children:
+            if not check_node(child):
+                return False
+
+        return True
+
+    return check_node(target_tab)
 
 
 def get_next_incomplete_tab(form_tree: Dict[str, Any], field_values: Dict[str, Any]) -> Optional[Dict[str, Any]]:

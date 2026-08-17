@@ -376,10 +376,11 @@ async def update_shared_state_node(
             history.append(act)
             last_action = act
 
-    elif intent_type == IntentType.NAVIGATE_TAB:
-        tab_match = pending.get("tab_match")
-        if tab_match:
-            selected_tab = tab_match.get("node_id")
+    # Set selected_node to list of all modified node IDs for multi-field AI focus highlighting
+    if successful_updates:
+        selected_node = [u.get("node_id") for u in successful_updates if u.get("node_id")]
+    elif intent_type == IntentType.CLEAR_FIELD and field_matches:
+        selected_node = [m.get("node", {}).get("node_id") for m in field_matches if m.get("node", {}).get("node_id")]
 
     # ── MCP Journey Progression & Active Step Evaluation ──────────
     journey_info = mcp_get_journey_step(form_tree, field_values)
@@ -522,11 +523,11 @@ async def generate_response_node(
             first_up = successful_updates[0]
             card_dict = {
                 "card_type": "update_success",
-                "title": f"Updated {len(successful_updates)} Field(s)",
+                "title": f"Updated {len(successful_updates)} Field(s) Successfully" if len(successful_updates) > 1 else "Field Updated Successfully",
                 "field_label": first_up["field_label"],
                 "new_value": str(first_up["new_value"]),
                 "updated_fields": [
-                    {"field_label": u["field_label"], "new_value": str(u["new_value"]), "node_id": u["node_id"]}
+                    {"field_label": u["field_label"], "new_value": str(u["new_value"]), "node_id": u.get("node_id")}
                     for u in successful_updates
                 ]
             }
