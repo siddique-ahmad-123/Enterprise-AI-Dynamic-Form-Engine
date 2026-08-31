@@ -1,4 +1,21 @@
 services:
+  postgres-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d myapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
   backend:
     build:
       context: ./backend
@@ -13,6 +30,15 @@ services:
       - ENABLE_PHOENIX=true
       - PHOENIX_COLLECTOR_ENDPOINT=https://ainsg.newgensoftware.net/phoenix/v1/traces
       - ALLOWED_ORIGINS=*
+      - DATABASE_URL=postgresql://admin:admin@postgres-db:5432/myapp?sslmode=prefer
+      - POSTGRES_HOST=postgres-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+    depends_on:
+      postgres-db:
+        condition: service_healthy
     restart: always
 
   copilot-runtime:
@@ -39,3 +65,19 @@ services:
     depends_on:
       - copilot-runtime
     restart: always
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5055:80"
+    depends_on:
+      - postgres-db
+    restart: always
+
+volumes:
+  postgres_data:
+
+

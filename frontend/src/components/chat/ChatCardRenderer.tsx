@@ -51,7 +51,9 @@ export interface CardData {
     | "data_table"
     | "metric"
     | "review_summary"
-    | "submission_success";
+    | "submission_success"
+    | "already_submitted"
+    | "guardrail";
   title?: string;
   reference_id?: string;
   applicant_name?: string;
@@ -997,6 +999,89 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
           <h4 className="font-bold text-sm text-slate-900">
             Field <span className="font-mono text-purple-800">{cardData.field_label}</span> has been cleared
           </h4>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 12. ALREADY SUBMITTED GUARD CARD
+  // ─────────────────────────────────────────────────────────────
+  if (cardData.card_type === "already_submitted") {
+    return (
+      <div className="bg-white rounded-xl border border-slate-300 shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-700 to-slate-900 px-4 py-3.5 text-white flex items-center gap-3">
+          <div className="p-2 bg-white/10 rounded-xl border border-white/20">
+            <Lock className="w-5 h-5 text-slate-200" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest block">Application Locked</span>
+            <h4 className="font-extrabold text-sm text-white">{cardData.title || "Application Already Submitted"}</h4>
+          </div>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-900 font-medium leading-relaxed">
+              {cardData.message || "Your application has already been submitted and is under review. No further submissions are allowed."}
+            </p>
+          </div>
+          <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+            <span className="text-slate-500 font-medium">Current Status</span>
+            <span className="font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md text-[11px]">
+              Underwriting Sanction Review
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 text-center">
+            You may preview your application details using the Review button above.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 13. GUARDRAIL CARD — off-topic or restricted request
+  // ─────────────────────────────────────────────────────────────
+  if (cardData.card_type === "guardrail") {
+    return (
+      <div className="bg-white rounded-xl border border-red-200 shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-red-700 to-rose-900 px-4 py-3.5 text-white flex items-center gap-3">
+          <div className="p-2 bg-white/10 rounded-xl border border-white/20">
+            <ShieldAlert className="w-5 h-5 text-red-200" />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-red-200 uppercase tracking-widest block">Access Restricted</span>
+            <h4 className="font-extrabold text-sm text-white">{cardData.title || "Request Outside Application Scope"}</h4>
+          </div>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <Info className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-900 font-medium leading-relaxed">
+              {cardData.message || "This request is outside the scope of the loan application journey or involves restricted information."}
+            </p>
+          </div>
+          <p className="text-[11px] text-slate-500 text-center px-2">
+            I can only assist with your <strong>Newgen Mortgage Loan Application</strong> — filling fields, reviewing details, or submitting.
+          </p>
+          {cardData.suggestions && cardData.suggestions.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Permitted Actions</span>
+              <div className="flex flex-col gap-1.5">
+                {cardData.suggestions.map((prompt, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => onSelectPrompt?.(prompt)}
+                    className="flex items-center justify-between p-2 bg-slate-50 hover:bg-indigo-50 border border-slate-200 rounded-lg text-slate-700 font-medium transition-all text-left text-xs group cursor-pointer"
+                  >
+                    <span>{prompt}</span>
+                    <Send className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

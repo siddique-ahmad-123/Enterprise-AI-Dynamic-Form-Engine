@@ -14,9 +14,9 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   return (
     <header className="w-full bg-white shadow-sm border-b border-slate-200">
-      <div className="flex flex-col lg:flex-row items-stretch overflow-hidden">
+      <div className="flex flex-col lg:flex-row items-stretch">
         {/* Left White Brand Logo Container */}
-        <div className="bg-white px-6 py-4 flex items-center justify-between lg:justify-start gap-4 min-w-[220px] relative z-10 shrink-0">
+        <div className="bg-white px-4 sm:px-6 py-3 flex items-center justify-between lg:justify-start gap-3 min-w-0 lg:min-w-[200px] relative z-10 shrink-0">
           <div className="flex items-center gap-3">
             {/* Newgen Globe Logo SVG */}
             <div className="relative w-9 h-9 flex items-center justify-center">
@@ -41,28 +41,28 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Steel-Blue Banner Background (#8ba4c7) */}
-        <div className="flex-1 bg-[#8ba4c7] text-[#1a2b4c] px-6 py-3 flex flex-wrap items-center justify-between gap-6 shadow-inner">
-          {/* Metadata Column 1 */}
-          <div className="flex flex-col gap-1 text-xs">
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Application No</span>
-              <span className="font-bold text-[#101b33]">WF1-0000011024-process</span>
+        <div className="flex-1 bg-[#8ba4c7] text-[#1a2b4c] px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shadow-inner overflow-x-auto">
+          {/* Metadata columns — compact on mobile, expanded on sm+ */}
+          <div className="flex flex-wrap items-start gap-x-4 gap-y-1.5 text-xs">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-600 font-medium text-[10px] uppercase tracking-wide">App No</span>
+              <span className="font-bold text-[#101b33] whitespace-nowrap">WF1-0000011024</span>
             </div>
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Created By User</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-600 font-medium text-[10px] uppercase tracking-wide">Created By</span>
               <span className="font-bold text-[#101b33]">chinmayee</span>
             </div>
-          </div>
-
-          {/* Metadata Column 2 */}
-          <div className="flex flex-col gap-1 text-xs">
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Branch Code</span>
-              <span className="font-bold text-[#101b33]">NB 054</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-600 font-medium text-[10px] uppercase tracking-wide">Branch</span>
+              <span className="font-bold text-[#101b33]">NB 054 · Noida</span>
             </div>
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Applicant Type</span>
-              <select className="bg-[#a2b8d9]/70 border border-[#6b87b0] rounded px-2.5 py-0.5 text-xs font-semibold text-[#101b33] focus:outline-none cursor-pointer">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-600 font-medium text-[10px] uppercase tracking-wide">Status</span>
+              <span className="font-bold text-[#101b33] whitespace-nowrap">CIF_And_AccountCreation</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-600 font-medium text-[10px] uppercase tracking-wide">Applicant Type</span>
+              <select className="bg-[#a2b8d9]/70 border border-[#6b87b0] rounded px-2 py-0.5 text-xs font-semibold text-[#101b33] focus:outline-none cursor-pointer transition-colors hover:bg-[#b3c8e0]/80">
                 <option value="Main Applicant">Main Applicant</option>
                 <option value="Co-Applicant">Co-Applicant</option>
                 <option value="Guarantor">Guarantor</option>
@@ -70,48 +70,28 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Metadata Column 3 */}
-          <div className="flex flex-col justify-start text-xs h-full">
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Branch Name</span>
-              <span className="font-bold text-[#101b33]">Noida</span>
-            </div>
-          </div>
-
-          {/* Metadata Column 4 */}
-          <div className="flex flex-col gap-1 text-xs">
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Status</span>
-              <span className="font-bold text-[#101b33]">CIF_And_AccountCreation</span>
-            </div>
-            <div>
-              <span className="text-slate-600 font-medium block text-[11px]">Country</span>
-              <span className="font-bold text-[#101b33]">India</span>
-            </div>
-          </div>
-
           {/* Action Control Buttons */}
-          <div className="flex items-center gap-2.5 ml-auto">
+          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
             {onToggleChatbot && (
               <button
                 onClick={onToggleChatbot}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold transition-all border shadow-sm ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 border shadow-sm active:scale-95 ${
                   isChatbotOpen
                     ? "bg-white text-slate-800 border-slate-300 hover:bg-slate-50"
                     : "bg-[#1e295d] text-white border-[#1e295d] hover:bg-[#151e45]"
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>{isChatbotOpen ? "Hide AI Assistant" : "AI Assistant"}</span>
+                <span className="hidden sm:inline">{isChatbotOpen ? "Hide AI" : "AI Assistant"}</span>
               </button>
             )}
 
             <button
               onClick={onReset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-rose-700 bg-white/80 hover:bg-white border border-slate-300 rounded transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-rose-700 bg-white/80 hover:bg-white border border-slate-300 rounded-lg transition-all duration-200 shadow-sm active:scale-95"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset
+              <span className="hidden sm:inline">Reset</span>
             </button>
           </div>
         </div>

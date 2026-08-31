@@ -38,6 +38,8 @@ from services import (
 
 
 
+from db.postgres import save_chat_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +78,14 @@ async def receive_request_node(
             is_human = isinstance(last, HumanMessage) or msg_type in ("human", "user")
             if is_human and isinstance(last.content, str):
                 user_text = last.content.strip()
+
+    if user_text:
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+        thread_id = configurable.get("thread_id") or "default"
+        try:
+            save_chat_message(thread_id=str(thread_id), role="user", content=user_text)
+        except Exception as e:
+            logger.debug("Chat persistence skipped for user message: %s", e)
 
     updates = {
         "isProcessing": True,
@@ -383,6 +393,7 @@ async def update_shared_state_node(
         selected_node = [m.get("node", {}).get("node_id") for m in field_matches if m.get("node", {}).get("node_id")]
 
     # ── MCP Journey Progression & Active Step Evaluation ──────────
+    previous_journey_status = state.get("journeyStatus")  # capture before any update
     journey_info = mcp_get_journey_step(form_tree, field_values)
     journey_status = journey_info.get("journey_status", "IN_PROGRESS")
     
@@ -396,6 +407,7 @@ async def update_shared_state_node(
         **pending,
         "successful_updates": successful_updates,
         "journey_status": journey_status,
+        "previous_journey_status": previous_journey_status,
         "journey_info": journey_info,
         "validation_errors": validation_errors,
     }
@@ -468,16 +480,30 @@ async def generate_response_node(
 
     # Case 2: Final Submission Request
     elif intent_type == IntentType.SUBMIT_APPLICATION or journey_status == "SUBMITTED":
-        card_dict = mcp_submit_application(form_tree, field_values)
-        app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
-        content = (
-            f"🎉 **Application Submitted Successfully!**\n\n"
-            f"• **Application Reference**: `{app_ref}`\n"
-            f"• **Applicant**: `{field_values.get('borrowerName') or 'Applicant'}`\n"
-            f"• **Status**: `Underwriting Sanction Review`\n"
-            f"• **Timestamp**: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
-            f"Thank you! Your mortgage loan application has been recorded. Our credit underwriting officer will contact you shortly."
-        )
+        # Guard: use previous_journey_status (before this turn's update) to detect re-submission
+        if intent_type == IntentType.SUBMIT_APPLICATION and pending.get("previous_journey_status") == "SUBMITTED":
+            card_dict = {
+                "card_type": "already_submitted",
+                "title": "Application Already Submitted",
+                "message": "Your application has already been submitted and is under Underwriting Sanction Review. No further edits or re-submissions are permitted.",
+            }
+            content = (
+                "🔒 **Application Already Submitted**\n\n"
+                "Your application is already submitted and under **Underwriting Sanction Review**.\n\n"
+                "You can only **preview** your application details at this stage. "
+                "No further modifications or re-submissions are allowed."
+            )
+        else:
+            card_dict = mcp_submit_application(form_tree, field_values)
+            app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
+            content = (
+                f"🎉 **Application Submitted Successfully!**\n\n"
+                f"• **Application Reference**: `{app_ref}`\n"
+                f"• **Applicant**: `{field_values.get('borrowerName') or 'Applicant'}`\n"
+                f"• **Status**: `Underwriting Sanction Review`\n"
+                f"• **Timestamp**: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
+                f"Thank you! Your mortgage loan application has been recorded. Our credit underwriting officer will contact you shortly."
+            )
 
     # Case 3: Review Stage Request or Form Complete
     elif intent_type == IntentType.REVIEW_APPLICATION or journey_status == "REVIEW":
@@ -612,6 +638,21 @@ async def generate_response_node(
         chart_title = card_dict.get("title", "Chart Analysis")
         content = f"📊 **{chart_title}**\n\n*Rendering real-time interactive visual graph...*"
 
+    # Case 12a: Guardrail — off-topic or restricted information request
+    elif intent_type == IntentType.GUARDRAIL:
+        reason = intent_data.get("reasoning", "This request is outside the scope of the loan application journey.")
+        card_dict = {
+            "card_type": "guardrail",
+            "title": "Request Outside Application Scope",
+            "message": reason,
+        }
+        content = (
+            "🚫 **Request Not Permitted**\n\n"
+            f"{reason}\n\n"
+            "I can only assist with your **Newgen Mortgage Loan Application**. "
+            "Please ask about filling in your form, reviewing your details, or submitting."
+        )
+
     # Case 12: Proactive Initial Journey Greeting / Fallback
     else:
         journey_info = mcp_get_journey_step(form_tree, field_values)
@@ -647,6 +688,19 @@ async def generate_response_node(
         json_str = json.dumps(card_dict, indent=2)
         final_text = f"```json:card\n{json_str}\n```\n\n{content}"
 
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+    thread_id = configurable.get("thread_id") or "default"
+    try:
+        save_chat_message(
+            thread_id=str(thread_id),
+            role="assistant",
+            content=content,
+            metadata=card_dict or {},
+        )
+    except Exception as e:
+        logger.debug("Chat persistence skipped for assistant message: %s", e)
+
     return {"messages": [AIMessage(content=final_text)], "isProcessing": False}
+
 
 

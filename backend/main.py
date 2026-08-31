@@ -15,7 +15,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
-from graph.workflow import form_graph
+from graph.workflow import form_graph, create_form_graph
+from db.postgres import (
+    init_db,
+    ainit_db,
+    get_async_checkpointer,
+    save_chat_message,
+    get_chat_history,
+    get_all_chat_sessions,
+    delete_chat_history,
+    check_db_health,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
@@ -73,6 +83,19 @@ async def lifespan(app: FastAPI):
     logger.info("========================================")
     logger.info("Model : %s", os.getenv("OPENAI_MODEL", "gpt-4o"))
     logger.info("Port  : %s", os.getenv("PORT", "8000"))
+    
+    # Initialize PostgreSQL Database & Checkpointer Tables
+    db_initialized = await ainit_db()
+    if db_initialized:
+        checkpointer = get_async_checkpointer()
+        if checkpointer is not None:
+            form_agent.graph = create_form_graph(checkpointer=checkpointer)
+            logger.info("🐘 PostgreSQL DB & Async Checkpointer: BOUND TO AGENT & READY")
+        else:
+            logger.info("🐘 PostgreSQL DB: READY (Checkpointer: in-memory)")
+    else:
+        logger.warning("🐘 PostgreSQL DB: Offline (Running with in-memory fallback)")
+    
     logger.info("========================================")
     yield
     logger.info("Backend stopped")
@@ -125,10 +148,72 @@ add_langgraph_fastapi_endpoint(
 
 @app.get("/health")
 async def health_check():
+    db_health = check_db_health()
     return {
         "status": "healthy",
-        "service": "dynamic-form-assistant-backend"
+        "service": "dynamic-form-assistant-backend",
+        "database": db_health
     }
+
+
+@app.get("/db/status")
+async def get_db_status():
+    """Returns the PostgreSQL connection health and status."""
+    return check_db_health()
+
+
+@app.get("/chat/sessions")
+async def list_chat_sessions():
+    """
+    Retrieves all conversation sessions / threads with metadata from PostgreSQL.
+    """
+    sessions = get_all_chat_sessions()
+    return {
+        "count": len(sessions),
+        "sessions": sessions
+    }
+
+
+@app.get("/chat/{thread_id}")
+async def get_chat_messages(thread_id: str, limit: int = 100):
+    """
+    Retrieves stored chat messages for a specific conversation thread from PostgreSQL.
+    """
+    messages = get_chat_history(thread_id=thread_id, limit=limit)
+    return {
+        "thread_id": thread_id,
+        "count": len(messages),
+        "messages": messages
+    }
+
+
+@app.delete("/chat/{thread_id}")
+async def delete_chat_messages_endpoint(thread_id: str):
+    """
+    Clears all stored chat messages for a specific conversation thread from PostgreSQL.
+    """
+    deleted_count = delete_chat_history(thread_id=thread_id)
+    return {
+        "thread_id": thread_id,
+        "deleted_count": deleted_count,
+        "status": "cleared"
+    }
+
+
+@app.post("/chat/{thread_id}/save")
+async def save_manual_chat_message(thread_id: str, payload: dict):
+    """
+    Manually persists a chat message to PostgreSQL.
+    """
+    role = payload.get("role", "user")
+    content = payload.get("content", "")
+    metadata = payload.get("metadata", {})
+    record = save_chat_message(thread_id=thread_id, role=role, content=content, metadata=metadata)
+    return {
+        "status": "saved" if record else "failed",
+        "record": record
+    }
+
 
 
 @app.get("/mcp/tools")

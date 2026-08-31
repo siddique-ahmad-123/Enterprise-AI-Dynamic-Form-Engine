@@ -69,7 +69,8 @@ Intents:
 - SUMMARIZE_FORM: User asks for a summary or completion status.
 - FIND_MISSING: User asks which fields are empty or required.
 - PLOT_CHART: User asks to render a pie chart, bar chart, or graph.
-- UNKNOWN: General conversation or unrelated greeting.
+- GUARDRAIL: The request is UNRELATED to the mortgage loan application OR asks for private/confidential company information (internal systems, underwriting algorithms, other users' data, employee records, pricing models, database schemas, security details, company policies). Also applies to completely off-topic requests: jokes, current events, investment advice, general knowledge. Use `reasoning` to state why. Examples: "What database do you use?", "Tell me a joke", "Who are your other applicants?", "How does your credit scoring work internally?".
+- UNKNOWN: Only harmless greetings with no information request (e.g. "Hi", "Hello", "Thanks", "Good morning").
 
 JSON Output Format (Strictly valid JSON):
 {

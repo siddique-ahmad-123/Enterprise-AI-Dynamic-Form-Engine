@@ -82,6 +82,7 @@ class IntentType(str, Enum):
     REVIEW_APPLICATION = "REVIEW_APPLICATION"
     SUBMIT_APPLICATION = "SUBMIT_APPLICATION"
     UNKNOWN = "UNKNOWN"
+    GUARDRAIL = "GUARDRAIL"
 
 
 class SingleFieldUpdate(BaseModel):
