@@ -60,6 +60,7 @@ export interface FormAgentState {
   conversationHistory: FormAction[];
   lastAction: FormAction | null;
   pendingUpdates?: Record<string, any>;
+  journeyStatus?: string | null;
   isProcessing?: boolean;
   error?: string | null;
 }

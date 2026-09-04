@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { History, Plus, Trash2, MessageSquare, Clock, X, Check, Loader2, Sparkles } from "lucide-react";
+import { History, Plus, Trash2, MessageSquare, Clock, X, Check, Loader2, Sparkles, Lock } from "lucide-react";
 
 interface ChatSession {
   thread_id: string;
@@ -7,6 +7,9 @@ interface ChatSession {
   started_at: string;
   last_activity: string;
   title_preview: string;
+  is_submitted?: boolean;
+  submission_ref?: string | null;
+  submitted_at?: string | null;
 }
 
 interface ChatHistoryModalProps {
@@ -16,6 +19,8 @@ interface ChatHistoryModalProps {
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
   backendUrl?: string;
+  authUser?: string | null;
+  isSubmitted?: boolean;
 }
 
 export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
@@ -25,6 +30,8 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
   onSelectThread,
   onNewChat,
   backendUrl = "http://localhost:8000",
+  authUser,
+  isSubmitted = false,
 }) => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -33,7 +40,11 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
   const fetchSessions = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${backendUrl}/chat/sessions`);
+      const effectiveUser = (authUser || localStorage.getItem("auth_username") || "").trim();
+      const url = effectiveUser
+        ? `${backendUrl}/chat/sessions?username=${encodeURIComponent(effectiveUser)}`
+        : `${backendUrl}/chat/sessions`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setSessions(data.sessions || []);
@@ -49,7 +60,7 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
     if (isOpen) {
       fetchSessions();
     }
-  }, [isOpen]);
+  }, [isOpen, authUser]);
 
   const handleDelete = async (e: React.MouseEvent, threadId: string) => {
     e.stopPropagation();
@@ -71,6 +82,15 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const handleNewThreadClick = () => {
+    if (isSubmitted) {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+    onNewChat();
+    onClose();
   };
 
   const formatTime = (isoString: string) => {
@@ -100,63 +120,51 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
               <History className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                Saved Chat Conversations
-                <span className="text-[11px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
-                  PostgreSQL
-                </span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                Browse, switch, or restore your previous assistant conversations
-              </p>
+              <h3 className="text-sm font-bold text-slate-800">PostgreSQL Chat Sessions</h3>
+              <p className="text-[11px] text-slate-400">Restore or switch between persistent conversation threads</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                onNewChat();
-                onClose();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-xs active:scale-95 cursor-pointer"
+              onClick={handleNewThreadClick}
+              title={isSubmitted ? "Application already submitted (Locked)" : "Start a new conversation thread"}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                isSubmitted
+                  ? "text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed"
+                  : "text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer"
+              }`}
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              New Chat
+              <span>New Thread</span>
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Modal Body / Sessions List */}
-        <div className="p-6 overflow-y-auto flex-1 divide-y divide-slate-100 space-y-2">
+        {/* Sessions List */}
+        <div className="p-6 overflow-y-auto flex-1 space-y-2.5">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-              <p className="text-xs font-medium">Loading saved conversations from PostgreSQL...</p>
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+              <p className="text-xs font-medium">Fetching conversation sessions from PostgreSQL...</p>
             </div>
           ) : sessions.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 mx-auto flex items-center justify-center mb-3">
-                <MessageSquare className="w-6 h-6" />
+            <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-center space-y-3">
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <Sparkles className="w-6 h-6 text-indigo-400" />
               </div>
-              <h4 className="text-sm font-bold text-slate-700">No previous chats found</h4>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Start typing commands or filling form details and your chat sessions will automatically be stored here in PostgreSQL.
-              </p>
-              <button
-                onClick={() => {
-                  onNewChat();
-                  onClose();
-                }}
-                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all shadow-xs cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Start New Chat
-              </button>
+              <div>
+                <p className="text-xs font-bold text-slate-700">No Chat History Found</p>
+                <p className="text-[11px] text-slate-400 max-w-xs mt-0.5">
+                  Your chat conversations are automatically saved in PostgreSQL as you interact with the agent.
+                </p>
+              </div>
             </div>
           ) : (
             sessions.map((s) => {
@@ -188,14 +196,23 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-800 truncate">
-                          {s.title_preview.slice(0, 65)}
-                          {s.title_preview.length > 65 ? "..." : ""}
+                          {s.title_preview.slice(0, 60)}
+                          {s.title_preview.length > 60 ? "..." : ""}
                         </span>
                         {isCurrent && (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-indigo-600 text-white px-2 py-0.2 rounded-md">
                             <Check className="w-3 h-3" /> Active
+                          </span>
+                        )}
+                        {s.is_submitted ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded-md">
+                            <Lock className="w-2.5 h-2.5" /> Submitted {s.submission_ref ? `(${s.submission_ref})` : ""}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-md">
+                            In Progress
                           </span>
                         )}
                       </div>

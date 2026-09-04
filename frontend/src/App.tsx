@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "@copilotkit/react-ui/styles.css";
 import { CopilotKit, useCopilotChat, useCopilotChatInternal } from "@copilotkit/react-core";
 import { CopilotSidebar } from "@copilotkit/react-ui";
@@ -11,10 +11,17 @@ import { CustomRenderMessage } from "./components/chat/CustomRenderMessage";
 import { VoiceInputControl } from "./components/chat/VoiceInputControl";
 import { ChatHeaderActions } from "./components/chat/ChatHeaderActions";
 import { ChatHistoryModal } from "./components/chat/ChatHistoryModal";
+import { LoginScreen } from "./components/auth/LoginScreen";
+import { AlreadySubmittedModal } from "./components/auth/AlreadySubmittedModal";
 import { useFormState } from "./hooks/useFormState";
 import { useChatSession } from "./hooks/useChatSession";
 import { myCatalog } from "./a2ui/catalog";
-import { FileText, Sparkles, Plus, History } from "lucide-react";
+import { FileText, Sparkles, Plus, History, LogOut } from "lucide-react";
+
+const AUTH_TOKEN_KEY = "auth_token";
+const AUTH_USER_KEY = "auth_username";
+// Empty string = relative path → Vite proxy (local dev); explicit URL bypasses proxy (Docker/prod)
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 const COPILOT_INSTRUCTIONS = `
 You are the AI Dynamic Form Assistant — an enterprise form engine assistant for Newgen Loan Applications.
@@ -39,18 +46,33 @@ interface MainContentProps {
   currentThreadId: string;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
+  authUser?: string | null;
+  onLogout?: () => void;
+  isSubmitted?: boolean;
 }
 
-function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen, onToggleSidebar }: MainContentProps) {
+function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen, onToggleSidebar, authUser, onLogout, isSubmitted }: MainContentProps) {
   const {
     state,
     updateFieldValue,
     setSelectedTab,
+    setJourneyStatus,
+    resetForm,
     running,
-  } = useFormState();
+  } = useFormState(currentThreadId);
 
   const { appendMessage } = useCopilotChat();
   const [isReviewOpen, setIsReviewOpen] = React.useState<boolean>(false);
+
+  const effectiveSubmitted = Boolean(isSubmitted || state.journeyStatus === "SUBMITTED");
+
+  // Keep coAgent journeyStatus in sync so the backend guards against re-submission on any thread
+  React.useEffect(() => {
+    if (effectiveSubmitted && state.journeyStatus !== "SUBMITTED") {
+      setJourneyStatus("SUBMITTED");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveSubmitted]);
 
   React.useEffect(() => {
     const handleOpenReview = () => setIsReviewOpen(true);
@@ -76,6 +98,10 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
   };
 
   const handleConfirmSubmit = () => {
+    if (effectiveSubmitted) {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
     try {
       appendMessage(
         new TextMessage({
@@ -89,6 +115,15 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
         content: "Submit Application",
       } as any);
     }
+  };
+
+  const handleNewChatClick = () => {
+    if (effectiveSubmitted) {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+    resetForm();
+    onNewChat();
   };
 
   return (
@@ -106,6 +141,11 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
           <span className="hidden lg:inline-flex text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 whitespace-nowrap flex-shrink-0">
             Thread: {currentThreadId.slice(-8)}
           </span>
+          {effectiveSubmitted && (
+            <span className="inline-flex items-center text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md flex-shrink-0">
+              🔒 Submitted
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -125,9 +165,13 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
 
           {/* New Chat Button */}
           <button
-            onClick={onNewChat}
-            title="Start a fresh conversation thread in PostgreSQL"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all duration-150 shadow-xs cursor-pointer active:scale-[0.97]"
+            onClick={handleNewChatClick}
+            title={effectiveSubmitted ? "Application already submitted (Locked)" : "Start a fresh conversation thread in PostgreSQL"}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-xl transition-all duration-150 shadow-xs active:scale-[0.97] ${
+              effectiveSubmitted
+                ? "text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed"
+                : "text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer"
+            }`}
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
             <span className="hidden sm:inline">New Chat</span>
@@ -151,6 +195,23 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
             <FileText className="w-4 h-4" />
             <span className="hidden sm:inline">Review &amp; Edit</span>
           </button>
+
+          {/* Logged-in user + Logout */}
+          {authUser && (
+            <div className="flex items-center gap-1.5">
+              <span className="hidden sm:inline text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg">
+                {authUser}
+              </span>
+              <button
+                onClick={onLogout}
+                title="Sign out"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-all duration-150 shadow-xs cursor-pointer active:scale-[0.97]"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sign Out</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -166,6 +227,7 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
           selectedNode={state.selectedNode}
           lastAction={state.lastAction}
           isProcessing={running}
+          isSubmitted={effectiveSubmitted}
         />
 
         {/* Single-Page Editable Review & Edit Modal */}
@@ -176,6 +238,7 @@ function MainContent({ onNewChat, onOpenHistory, currentThreadId, isSidebarOpen,
           fieldValues={state.fieldValues}
           onFieldChange={updateFieldValue}
           onSubmitApplication={handleConfirmSubmit}
+          isSubmitted={effectiveSubmitted}
         />
 
         {/* Quick Test Action Prompts */}
@@ -195,7 +258,10 @@ function SidebarContainer({
   startNewChat,
   switchThread,
   backendUrl,
-}: ReturnType<typeof useChatSession>) {
+  authUser,
+  onLogout,
+  isSubmitted,
+}: ReturnType<typeof useChatSession> & { authUser?: string | null; onLogout?: () => void; isSubmitted?: boolean }) {
   const { appendMessage, reset } = useCopilotChat();
   const chatInternal = useCopilotChatInternal();
   const setMessages = (chatInternal as any)?.setMessages;
@@ -226,6 +292,10 @@ function SidebarContainer({
   };
 
   const handleNewChat = () => {
+    if (isSubmitted) {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
     startNewChat(setMessages);
     try {
       reset?.();
@@ -248,7 +318,7 @@ function SidebarContainer({
         instructions={COPILOT_INSTRUCTIONS}
         labels={{
           title: "🤖 Form AI Assistant",
-          placeholder: "Type or speak: 'Set Customer Name to John'...",
+          placeholder: isSubmitted ? "Application submitted (Locked under review)" : "Type or speak: 'Set Customer Name to John'...",
           stopGenerating: "Stop",
           regenerateResponse: "Regenerate",
         }}
@@ -266,6 +336,9 @@ function SidebarContainer({
             const btn = document.querySelector<HTMLButtonElement>(".copilotKitButton");
             btn?.click();
           }}
+          authUser={authUser}
+          onLogout={onLogout}
+          isSubmitted={isSubmitted}
         />
       </CopilotSidebar>
 
@@ -273,6 +346,7 @@ function SidebarContainer({
       <ChatHeaderActions
         onNewChat={handleNewChat}
         onOpenHistory={() => setIsHistoryOpen(true)}
+        isSubmitted={isSubmitted}
       />
 
       {/* Voice Dictation Control Portaled inside Chatbot Input */}
@@ -286,22 +360,171 @@ function SidebarContainer({
         onSelectThread={handleSelectThread}
         onNewChat={handleNewChat}
         backendUrl={backendUrl}
+        authUser={authUser}
+        isSubmitted={isSubmitted}
       />
     </>
   );
 }
 
 export default function App() {
-  const chatSession = useChatSession();
+  const [authToken, setAuthToken] = useState<string | null>(
+    () => localStorage.getItem(AUTH_TOKEN_KEY)
+  );
+  const [authUser, setAuthUser] = useState<string | null>(
+    () => localStorage.getItem(AUTH_USER_KEY)
+  );
+  const chatSession = useChatSession(authUser);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submissionRef, setSubmissionRef] = useState<string | null>(null);
+  const [submissionDate, setSubmissionDate] = useState<string | null>(null);
+  const [showSubmittedModal, setShowSubmittedModal] = useState(false);
+  const modalBlockedRef = React.useRef(false);
+
+  const hydrateUserSession = async (user: string) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/auth/user-thread?username=${encodeURIComponent(user)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.thread_id && data.thread_id !== chatSession.threadId) {
+          chatSession.setThreadId(data.thread_id);
+        }
+        if (data.is_submitted) {
+          setIsSubmitted(true);
+          setSubmissionRef(data.submission_ref || null);
+          setSubmissionDate(data.submitted_at || null);
+          return;
+        }
+      }
+    } catch { /* ignore network errors */ }
+
+    // Fallback: check thread status
+    if (chatSession.threadId) {
+      checkThreadSubmissionStatus(chatSession.threadId);
+    }
+  };
+
+  const checkThreadSubmissionStatus = async (targetThreadId: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/chat/submission-status/${encodeURIComponent(targetThreadId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.has_submitted) {
+          setIsSubmitted(true);
+          setSubmissionRef(data.submission_ref);
+          setSubmissionDate(data.submitted_at);
+          return;
+        }
+      }
+      setIsSubmitted(false);
+      setSubmissionRef(null);
+      setSubmissionDate(null);
+    } catch { /* ignore network errors silently */ }
+  };
+
+  const handleAuthenticated = (username: string, token: string) => {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, username);
+    setAuthToken(token);
+    setAuthUser(username);
+    hydrateUserSession(username);
+  };
+
+  // Hydrate user thread and submission status on mount / authUser change
+  useEffect(() => {
+    if (authUser) {
+      hydrateUserSession(authUser);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
+
+  // Check thread submission status when active thread changes
+  useEffect(() => {
+    if (chatSession.threadId) {
+      checkThreadSubmissionStatus(chatSession.threadId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatSession.threadId]);
+
+  // Mark thread and user as submitted when success card renders (fired by ChatCardRenderer)
+  useEffect(() => {
+    const onSuccess = async (e: Event) => {
+      const { ref, date } = (e as CustomEvent).detail ?? {};
+      setIsSubmitted(true);
+      setSubmissionRef(ref ?? null);
+      setSubmissionDate(date ?? null);
+      const user = localStorage.getItem(AUTH_USER_KEY);
+      if (chatSession.threadId && ref) {
+        try {
+          await fetch(`${BACKEND_URL}/chat/mark-submitted`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ thread_id: chatSession.threadId, submission_ref: ref, username: user }),
+          });
+          if (user) {
+            await fetch(`${BACKEND_URL}/auth/mark-submitted`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: user, submission_ref: ref }),
+            });
+          }
+        } catch { /* non-critical */ }
+      }
+    };
+    window.addEventListener("submission-success", onSuccess);
+    return () => window.removeEventListener("submission-success", onSuccess);
+  }, [chatSession.threadId]);
+
+  // Show modal when any component fires show-already-submitted
+  useEffect(() => {
+    const show = () => {
+      if (!modalBlockedRef.current) setShowSubmittedModal(true);
+    };
+    window.addEventListener("show-already-submitted", show);
+    return () => window.removeEventListener("show-already-submitted", show);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    setAuthToken(null);
+    setAuthUser(null);
+    setIsSubmitted(false);
+    setSubmissionRef(null);
+    setSubmissionDate(null);
+  };
+
+  if (!authToken) {
+    return <LoginScreen onAuthenticated={handleAuthenticated} />;
+  }
 
   return (
     <CopilotKit
+      key={chatSession.threadId}
       runtimeUrl={RUNTIME_URL}
       agent="form_agent"
       threadId={chatSession.threadId}
       a2ui={{ catalog: myCatalog } as any}
     >
-      <SidebarContainer {...chatSession} />
+      <SidebarContainer
+        {...chatSession}
+        authUser={authUser}
+        onLogout={handleLogout}
+        isSubmitted={isSubmitted}
+      />
+      {showSubmittedModal && (
+        <AlreadySubmittedModal
+          submissionRef={submissionRef}
+          submissionDate={submissionDate}
+          onClose={() => {
+            // Block re-open for 500 ms to prevent event loop re-trigger
+            modalBlockedRef.current = true;
+            setShowSubmittedModal(false);
+            setTimeout(() => { modalBlockedRef.current = false; }, 500);
+          }}
+        />
+      )}
     </CopilotKit>
   );
 }

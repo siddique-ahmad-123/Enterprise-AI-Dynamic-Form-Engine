@@ -7,6 +7,7 @@ interface FieldRendererProps {
   value: any;
   onChange: (nodeId: string, value: any) => void;
   isSelected?: boolean;
+  isSubmitted?: boolean;
 }
 
 export const FieldRenderer: React.FC<FieldRendererProps> = ({
@@ -14,6 +15,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   value,
   onChange,
   isSelected = false,
+  isSubmitted = false,
 }) => {
   const {
     node_id,
@@ -31,7 +33,17 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
     unit = "",
   } = node;
 
+  const isFieldDisabled = readonly || isSubmitted;
   const currentValue = value !== undefined && value !== null ? value : "";
+
+  const handleSafeChange = (newVal: any) => {
+    if (isSubmitted) {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+    if (readonly) return;
+    onChange(node_id, newVal);
+  };
 
   // 1. Action Button Nodes
   if (node_type === "action_button") {
@@ -39,10 +51,16 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
       <div className="pt-2">
         <button
           type="button"
-          onClick={() => onChange(node_id, true)}
-          className="bg-[#1e295d] hover:bg-[#151e45] text-white font-semibold text-xs px-5 py-2.5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none flex items-center gap-2 cursor-pointer"
+          disabled={isFieldDisabled}
+          onClick={() => handleSafeChange(true)}
+          className={`font-semibold text-xs px-5 py-2.5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none flex items-center gap-2 ${
+            isFieldDisabled
+              ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+              : "bg-[#1e295d] hover:bg-[#151e45] text-white cursor-pointer"
+          }`}
         >
           <span>{label}</span>
+          {isSubmitted && <Lock className="w-3 h-3 text-slate-500" />}
         </button>
       </div>
     );
@@ -51,7 +69,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   // 2. Upload Nodes
   if (node_type === "upload" || field_type === "file") {
     return (
-      <div className="w-full bg-[#f8fafc] border border-dashed border-slate-300 rounded-lg p-3 text-center space-y-2">
+      <div className={`w-full border border-dashed rounded-lg p-3 text-center space-y-2 ${isFieldDisabled ? "bg-slate-100/70 border-slate-300 opacity-90" : "bg-[#f8fafc] border-slate-300"}`}>
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
             <Upload className="w-4 h-4 text-indigo-600" />
@@ -64,18 +82,25 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           <input
             type="file"
             id={node_id}
-            disabled={readonly}
+            disabled={isFieldDisabled}
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) onChange(node_id, file.name);
+              if (file) handleSafeChange(file.name);
             }}
             className="hidden"
           />
           <label
-            htmlFor={node_id}
-            className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded text-xs font-medium text-slate-700 cursor-pointer transition-colors"
+            htmlFor={isFieldDisabled ? undefined : node_id}
+            onClick={() => {
+              if (isSubmitted) window.dispatchEvent(new CustomEvent("show-already-submitted"));
+            }}
+            className={`px-3 py-1.5 border rounded text-xs font-medium transition-colors ${
+              isFieldDisabled
+                ? "bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed"
+                : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700 cursor-pointer"
+            }`}
           >
-            {currentValue ? `Replace ${currentValue}` : "Browse File"}
+            {currentValue ? `Attached: ${currentValue}` : "Browse File"}
           </label>
           <span className="text-xs font-mono text-emerald-700 truncate max-w-[150px]">
             {currentValue || "No file chosen"}
@@ -101,6 +126,12 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
               AI Focused
             </span>
           )}
+          {isFieldDisabled && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+              <Lock className="w-3 h-3" />
+              Read-Only
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 p-1 bg-[#f1f3f6] rounded-lg border border-slate-200/60 w-fit">
           {opts.map((opt) => {
@@ -109,12 +140,16 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
               <button
                 key={opt}
                 type="button"
-                disabled={readonly}
-                onClick={() => onChange(node_id, opt)}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                  isSelectedOpt
-                    ? "bg-[#1e295d] text-white shadow-xs"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+                disabled={isFieldDisabled}
+                onClick={() => handleSafeChange(opt)}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                  isFieldDisabled
+                    ? isSelectedOpt
+                      ? "bg-slate-700 text-white cursor-not-allowed opacity-90 shadow-xs"
+                      : "text-slate-400 bg-transparent cursor-not-allowed"
+                    : isSelectedOpt
+                    ? "bg-[#1e295d] text-white shadow-xs cursor-pointer"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
                 }`}
               >
                 {opt}
@@ -143,6 +178,12 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
                 AI Focused
               </span>
             )}
+            {isFieldDisabled && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                <Lock className="w-3 h-3" />
+                Read-Only
+              </span>
+            )}
             <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded text-xs font-bold font-mono">
               {numVal.toLocaleString()} {unit}
             </span>
@@ -154,9 +195,9 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           max={max}
           step={step}
           value={numVal}
-          disabled={readonly}
-          onChange={(e) => onChange(node_id, Number(e.target.value))}
-          className="w-full accent-[#1e295d] h-2 bg-slate-200 rounded-lg cursor-pointer"
+          disabled={isFieldDisabled}
+          onChange={(e) => handleSafeChange(Number(e.target.value))}
+          className={`w-full accent-[#1e295d] h-2 bg-slate-200 rounded-lg ${isFieldDisabled ? "cursor-not-allowed opacity-75" : "cursor-pointer"}`}
         />
         <div className="flex justify-between text-[10px] text-slate-400 font-mono">
           <span>{min.toLocaleString()} {unit}</span>
@@ -167,12 +208,11 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
   }
 
   const handleChange = (e: any) => {
-    if (readonly) return;
     let newVal: any = e.target ? e.target.value : e;
     if (field_type === "switch" || field_type === "checkbox") {
       newVal = e.target.checked;
     }
-    onChange(node_id, newVal);
+    handleSafeChange(newVal);
   };
 
   // 5. Checkbox Field
@@ -184,17 +224,23 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           id={node_id}
           checked={Boolean(currentValue)}
           onChange={handleChange}
-          disabled={readonly}
-          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#1e295d] focus:ring-[#1e295d] cursor-pointer"
+          disabled={isFieldDisabled}
+          className={`mt-0.5 h-4 w-4 rounded border-slate-300 text-[#1e295d] focus:ring-[#1e295d] ${isFieldDisabled ? "cursor-not-allowed opacity-75" : "cursor-pointer"}`}
         />
         <div className="flex-1 flex items-center justify-between">
-          <label htmlFor={node_id} className="text-xs text-slate-700 leading-relaxed cursor-pointer select-none">
+          <label htmlFor={isFieldDisabled ? undefined : node_id} className={`text-xs text-slate-700 leading-relaxed select-none ${isFieldDisabled ? "cursor-not-allowed text-slate-600" : "cursor-pointer"}`}>
             {description || label}
           </label>
           {isSelected && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white shadow-xs animate-pulse shrink-0">
               <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
               AI Focused
+            </span>
+          )}
+          {isFieldDisabled && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 shrink-0 ml-2">
+              <Lock className="w-3 h-3" />
+              Read-Only
             </span>
           )}
         </div>
@@ -230,7 +276,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
             </span>
           )}
 
-          {readonly && (
+          {isFieldDisabled && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
               <Lock className="w-3 h-3" />
               Read-Only
@@ -245,7 +291,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           <select
             value={currentValue}
             onChange={handleChange}
-            disabled={readonly}
+            disabled={isFieldDisabled}
             className="w-full appearance-none px-3.5 py-2.5 text-xs font-semibold text-slate-800 bg-[#f1f3f6] border border-slate-200/60 rounded-lg focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#1e295d] disabled:bg-slate-200/60 disabled:opacity-80 disabled:cursor-not-allowed cursor-pointer pr-8"
           >
             <option value="" disabled>Select</option>
@@ -258,12 +304,12 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       ) : field_type === "switch" ? (
-        <label className="inline-flex items-center gap-2 cursor-pointer pt-1">
+        <label className={`inline-flex items-center gap-2 pt-1 ${isFieldDisabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
           <input
             type="checkbox"
             checked={Boolean(currentValue)}
             onChange={handleChange}
-            disabled={readonly}
+            disabled={isFieldDisabled}
             className="sr-only peer"
           />
           <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#1e295d]"></div>
@@ -272,15 +318,14 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           </span>
         </label>
       ) : (field_type as any) === "rating" ? (
-
         <div className="flex items-center gap-1 py-1">
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={star}
               type="button"
-              disabled={readonly}
-              onClick={() => onChange(node_id, star)}
-              className="p-0.5 text-amber-500 hover:scale-110 transition-transform"
+              disabled={isFieldDisabled}
+              onClick={() => handleSafeChange(star)}
+              className={`p-0.5 transition-transform ${isFieldDisabled ? "cursor-not-allowed opacity-80" : "hover:scale-110 cursor-pointer"}`}
             >
               <Star
                 className={`w-4 h-4 ${
@@ -301,7 +346,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           placeholder={placeholder}
           value={currentValue}
           onChange={handleChange}
-          disabled={readonly}
+          disabled={isFieldDisabled}
           className="w-full px-3.5 py-2.5 text-xs font-semibold text-slate-800 bg-[#f1f3f6] border border-slate-200/60 rounded-lg focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#1e295d] disabled:bg-slate-200/60 disabled:opacity-80 disabled:cursor-not-allowed resize-none"
         />
       ) : (
@@ -310,12 +355,12 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
           placeholder={placeholder}
           value={currentValue}
           onChange={handleChange}
-          disabled={readonly}
+          disabled={isFieldDisabled}
           className="w-full px-3.5 py-2.5 text-xs font-semibold text-slate-800 bg-[#f1f3f6] border border-slate-200/60 rounded-lg focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#1e295d] disabled:bg-slate-200/60 disabled:opacity-80 disabled:cursor-not-allowed"
         />
       )}
 
-      {readonly && (
+      {isFieldDisabled && (
         <p className="text-[10px] text-amber-700 mt-1">
           🔒 Locked read-only field.
         </p>

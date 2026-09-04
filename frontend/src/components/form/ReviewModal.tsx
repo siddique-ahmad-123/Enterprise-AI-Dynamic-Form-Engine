@@ -24,6 +24,7 @@ interface ReviewModalProps {
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
   onSubmitApplication: () => void;
+  isSubmitted?: boolean;
 }
 
 const TAB_ICONS: Record<string, React.ReactNode> = {
@@ -42,6 +43,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   fieldValues,
   onFieldChange,
   onSubmitApplication,
+  isSubmitted = false,
 }) => {
   const [activeTabFilter, setActiveTabFilter] = useState<string>("all");
   const [collapsedTabs, setCollapsedTabs] = useState<Record<string, boolean>>({});
@@ -59,7 +61,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
   const renderFieldInput = (field: FormNode) => {
     const value = fieldValues[field.node_id] !== undefined ? fieldValues[field.node_id] : field.value ?? "";
-    const isReadonly = field.readonly;
+    const isReadonly = field.readonly || isSubmitted;
 
     if (field.field_type === "checkbox") {
       return (
@@ -312,7 +314,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>Updates made here sync live with the form and the AI assistant.</span>
+            <span>{isSubmitted ? "Application is locked under Underwriting Review." : "Updates made here sync live with the form and the AI assistant."}</span>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -322,16 +324,22 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             >
               Close Review
             </button>
-            <button
-              onClick={() => {
-                onSubmitApplication();
-                onClose();
-              }}
-              className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-[0.98]"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Confirm & Submit Application
-            </button>
+            {isSubmitted ? (
+              <span className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl">
+                🔒 Application Submitted (Locked)
+              </span>
+            ) : (
+              <button
+                onClick={() => {
+                  onSubmitApplication();
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-[0.98]"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Confirm & Submit Application
+              </button>
+            )}
           </div>
         </div>
       </div>

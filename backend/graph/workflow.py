@@ -26,7 +26,6 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from state.form_state import FormAgentState
-from db.postgres import get_postgres_checkpointer
 from graph.nodes import (
     receive_request_node,
     understand_intent_node,
@@ -70,20 +69,12 @@ def create_form_graph(checkpointer=None):
     workflow.add_edge("generate_response", END)
 
     if checkpointer is None:
-        try:
-            checkpointer = get_postgres_checkpointer()
-            if checkpointer is not None:
-                logger.info("Using PostgreSQL checkpointer (PostgresSaver) for LangGraph state.")
-            else:
-                logger.info("PostgreSQL not active. Using MemorySaver checkpointer.")
-                checkpointer = MemorySaver()
-        except Exception as e:
-            logger.warning("Falling back to MemorySaver: %s", e)
-            checkpointer = MemorySaver()
+        # Always use MemorySaver as fallback; lifespan replaces this with postgres if available
+        checkpointer = MemorySaver()
 
     return workflow.compile(checkpointer=checkpointer)
 
 
-# Singleton graph instance
+# Singleton compiled with MemorySaver; lifespan swaps in AsyncPostgresSaver after startup
 form_graph = create_form_graph()
 

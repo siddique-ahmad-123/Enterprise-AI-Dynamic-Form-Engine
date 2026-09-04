@@ -1,26 +1,69 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { TextMessage, Role } from "@copilotkit/runtime-client-gql";
 
-const STORAGE_KEY = "copilot_chat_thread_id";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
-export function useChatSession() {
+const getUserStorageKey = (user?: string | null) => `copilot_chat_thread_id_${(user || "anonymous").toLowerCase()}`;
+
+export function useChatSession(authUser?: string | null) {
   const [threadId, setThreadId] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY) || `thread_${Date.now()}`;
+    if (authUser) {
+      const key = getUserStorageKey(authUser);
+      return localStorage.getItem(key) || `thread_usr_${authUser.toLowerCase()}`;
+    }
+    return localStorage.getItem(getUserStorageKey(null)) || `thread_usr_anonymous`;
   });
 
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false);
+  const prevUserRef = useRef<string | null | undefined>(authUser);
 
-  // Synchronize localStorage
+  // When authUser changes, resolve the canonical thread from backend or deterministic user key
   useEffect(() => {
-    if (threadId) {
-      localStorage.setItem(STORAGE_KEY, threadId);
+    if (!authUser) {
+      const anonThread = localStorage.getItem(getUserStorageKey(null)) || `thread_usr_anonymous`;
+      setThreadId(anonThread);
+      prevUserRef.current = authUser;
+      return;
     }
-  }, [threadId]);
+
+    if (prevUserRef.current !== authUser) {
+      prevUserRef.current = authUser;
+      const deterministicThread = `thread_usr_${authUser.toLowerCase()}`;
+      const cached = localStorage.getItem(getUserStorageKey(authUser));
+      const targetThread = cached || deterministicThread;
+      setThreadId(targetThread);
+      localStorage.setItem(getUserStorageKey(authUser), targetThread);
+
+      // Verify canonical thread ID with backend
+      fetch(`${BACKEND_URL}/auth/user-thread?username=${encodeURIComponent(authUser)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.thread_id && data.thread_id !== targetThread) {
+            setThreadId(data.thread_id);
+            localStorage.setItem(getUserStorageKey(authUser), data.thread_id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [authUser]);
+
+  // Synchronize localStorage and backend user association
+  useEffect(() => {
+    if (threadId && authUser) {
+      const key = getUserStorageKey(authUser);
+      localStorage.setItem(key, threadId);
+      fetch(`${BACKEND_URL}/chat/${encodeURIComponent(threadId)}/user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: authUser }),
+      }).catch(() => {});
+    }
+  }, [threadId, authUser]);
 
   const loadThreadMessages = useCallback(
     async (targetThreadId: string, setMessages: (msgs: any[]) => void) => {
+      if (!targetThreadId) return;
       setIsLoadingMessages(true);
       try {
         const res = await fetch(`${BACKEND_URL}/chat/${encodeURIComponent(targetThreadId)}`);
@@ -70,31 +113,50 @@ export function useChatSession() {
 
   const startNewChat = useCallback(
     (setMessages?: (msgs: any[]) => void) => {
-      const newThread = `thread_${Date.now()}`;
-      setThreadId(newThread);
-      localStorage.setItem(STORAGE_KEY, newThread);
-      if (setMessages) {
-        setMessages([]);
+      // For authenticated users, maintain their canonical thread ID (One Thread per User)
+      const userThread = authUser ? `thread_usr_${authUser.toLowerCase()}` : `thread_usr_anonymous`;
+      setThreadId(userThread);
+      const key = getUserStorageKey(authUser);
+      localStorage.setItem(key, userThread);
+
+      if (authUser) {
+        fetch(`${BACKEND_URL}/chat/${encodeURIComponent(userThread)}/user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: authUser }),
+        }).catch(() => {});
       }
-      console.log(`[PostgreSQL] Started new chat thread: '${newThread}'`);
-      return newThread;
+
+      if (setMessages) {
+        loadThreadMessages(userThread, setMessages);
+      }
+      return userThread;
     },
-    []
+    [authUser, loadThreadMessages]
   );
 
   const switchThread = useCallback(
     (newThreadId: string, setMessages?: (msgs: any[]) => void) => {
       setThreadId(newThreadId);
-      localStorage.setItem(STORAGE_KEY, newThreadId);
+      const key = getUserStorageKey(authUser);
+      localStorage.setItem(key, newThreadId);
+      if (authUser) {
+        fetch(`${BACKEND_URL}/chat/${encodeURIComponent(newThreadId)}/user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: authUser }),
+        }).catch(() => {});
+      }
       if (setMessages) {
         loadThreadMessages(newThreadId, setMessages);
       }
     },
-    [loadThreadMessages]
+    [authUser, loadThreadMessages]
   );
 
   return {
     threadId,
+    setThreadId,
     isHistoryOpen,
     setIsHistoryOpen,
     isLoadingMessages,

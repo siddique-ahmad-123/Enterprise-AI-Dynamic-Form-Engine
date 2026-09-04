@@ -309,6 +309,16 @@ export const ChatCardRenderer: React.FC<ChatCardProps> = ({ content, onSelectPro
 
   const cardData = parseMessageToCardData(content);
 
+  // Notify App once when a submission_success card first renders
+  React.useEffect(() => {
+    if (cardData?.card_type === "submission_success") {
+      window.dispatchEvent(new CustomEvent("submission-success", {
+        detail: { ref: cardData.reference_id, date: cardData.submission_date },
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardData?.card_type]);
+
   if (!cardData) {
     return <div className="text-slate-800 text-sm whitespace-pre-wrap">{content}</div>;
   }

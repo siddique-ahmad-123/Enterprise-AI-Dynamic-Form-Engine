@@ -38,7 +38,12 @@ from services import (
 
 
 
-from db.postgres import save_chat_message
+from db.postgres import (
+    save_chat_message,
+    mark_thread_submitted,
+    get_thread_submission_status,
+    save_thread_form_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +254,7 @@ async def validate_action_node(
 ) -> dict:
     """
     Validates proposed action against business rules:
+    - SUBMISSION CHECK: If thread is already submitted, blocks all mutations.
     - READONLY CHECK: If node is readonly, marks validation_failed with clear message.
     - OPTIONS / TYPE CHECK: Validates proposed value against options list or type.
     """
@@ -257,10 +263,17 @@ async def validate_action_node(
     intent_type = intent_data.get("intent", IntentType.UNKNOWN)
     field_matches = pending.get("field_matches") or []
 
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+    thread_id = str(configurable.get("thread_id") or "default")
+    is_submitted_in_db = bool(get_thread_submission_status(thread_id))
+    is_already_submitted = (state.get("journeyStatus") == "SUBMITTED") or is_submitted_in_db
+
     validated_updates = []
     validation_errors = []
 
-    if intent_type == IntentType.UPDATE_FIELD and field_matches:
+    if is_already_submitted and intent_type in (IntentType.UPDATE_FIELD, IntentType.CLEAR_FIELD, IntentType.CONFIRM_CONSENT):
+        validation_errors.append("🔒 **Application Already Submitted**: This application is under Underwriting Sanction Review and cannot be modified.")
+    elif intent_type == IntentType.UPDATE_FIELD and field_matches:
         for item in field_matches:
             node = item.get("node") or {}
             raw_val = item.get("target_value")
@@ -289,6 +302,7 @@ async def validate_action_node(
     updated_pending = {
         **pending,
         "is_valid": is_valid,
+        "is_already_submitted": is_already_submitted,
         "validated_updates": validated_updates,
         "validation_errors": validation_errors,
     }
@@ -325,6 +339,9 @@ async def update_shared_state_node(
     field_matches = pending.get("field_matches") or []
     validated_updates = pending.get("validated_updates") or []
 
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+    thread_id = str(configurable.get("thread_id") or "default")
+
     form_tree = state.get("formTree") or {}
     field_values = dict(state.get("fieldValues") or {})
     selected_tab = pending.get("target_selected_tab") or state.get("selectedTab")
@@ -335,56 +352,64 @@ async def update_shared_state_node(
     successful_updates = []
     validation_errors = list(pending.get("validation_errors") or [])
 
-    # Case 1: Consent Confirmation
-    if intent_type == IntentType.CONFIRM_CONSENT:
-        consent_updates = [
-            {"node_id": "isCheckedTermandCond", "target_value": True, "node": {"node_id": "isCheckedTermandCond", "label": "Terms & Conditions"}},
-            {"node_id": "isCheckedLifestyle", "target_value": True, "node": {"node_id": "isCheckedLifestyle", "label": "Lifestyle Verification"}},
-            {"node_id": "isCheckedPrivacy", "target_value": True, "node": {"node_id": "isCheckedPrivacy", "label": "Privacy Notice"}},
-        ]
-        field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, consent_updates)
-        successful_updates.extend(succ)
-        validation_errors.extend(errs)
+    # ── Thread Submission Lock Check ──────────
+    previous_journey_status = state.get("journeyStatus")
+    is_submitted_in_db = bool(get_thread_submission_status(thread_id))
+    if is_submitted_in_db:
+        previous_journey_status = "SUBMITTED"
 
-    # Case 2: Field Updates
-    elif intent_type == IntentType.UPDATE_FIELD and validated_updates:
-        field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, validated_updates)
-        successful_updates.extend(succ)
-        validation_errors.extend(errs)
+    # Only apply field mutations if NOT already submitted
+    if previous_journey_status != "SUBMITTED":
+        # Case 1: Consent Confirmation
+        if intent_type == IntentType.CONFIRM_CONSENT:
+            consent_updates = [
+                {"node_id": "isCheckedTermandCond", "target_value": True, "node": {"node_id": "isCheckedTermandCond", "label": "Terms & Conditions"}},
+                {"node_id": "isCheckedLifestyle", "target_value": True, "node": {"node_id": "isCheckedLifestyle", "label": "Lifestyle Verification"}},
+                {"node_id": "isCheckedPrivacy", "target_value": True, "node": {"node_id": "isCheckedPrivacy", "label": "Privacy Notice"}},
+            ]
+            field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, consent_updates)
+            successful_updates.extend(succ)
+            validation_errors.extend(errs)
 
-        for up in succ:
-            act = {
-                "action_type": "UPDATE_FIELD",
-                "node_id": up.get("node_id"),
-                "field_label": up.get("field_label"),
-                "old_value": up.get("old_value"),
-                "new_value": up.get("new_value"),
-                "timestamp": datetime.datetime.now().isoformat(),
-                "message": f"Updated '{up.get('field_label')}' to '{up.get('new_value')}'"
-            }
-            history.append(act)
-            last_action = act
+        # Case 2: Field Updates
+        elif intent_type == IntentType.UPDATE_FIELD and validated_updates:
+            field_values, succ, errs = mcp_update_form_fields(form_tree, field_values, validated_updates)
+            successful_updates.extend(succ)
+            validation_errors.extend(errs)
 
-    # Case 3: Clear Field
-    elif intent_type == IntentType.CLEAR_FIELD and field_matches:
-        for item in field_matches:
-            node = item.get("node") or {}
-            node_id = node.get("node_id")
-            old_val = field_values.get(node_id)
-            field_values[node_id] = ""
-            field_label = node.get("label", node_id)
+            for up in succ:
+                act = {
+                    "action_type": "UPDATE_FIELD",
+                    "node_id": up.get("node_id"),
+                    "field_label": up.get("field_label"),
+                    "old_value": up.get("old_value"),
+                    "new_value": up.get("new_value"),
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "message": f"Updated '{up.get('field_label')}' to '{up.get('new_value')}'"
+                }
+                history.append(act)
+                last_action = act
 
-            act = {
-                "action_type": "CLEAR_FIELD",
-                "node_id": node_id,
-                "field_label": field_label,
-                "old_value": old_val,
-                "new_value": "",
-                "timestamp": datetime.datetime.now().isoformat(),
-                "message": f"Cleared field '{field_label}'"
-            }
-            history.append(act)
-            last_action = act
+        # Case 3: Clear Field
+        elif intent_type == IntentType.CLEAR_FIELD and field_matches:
+            for item in field_matches:
+                node = item.get("node") or {}
+                node_id = node.get("node_id")
+                old_val = field_values.get(node_id)
+                field_values[node_id] = ""
+                field_label = node.get("label", node_id)
+
+                act = {
+                    "action_type": "CLEAR_FIELD",
+                    "node_id": node_id,
+                    "field_label": field_label,
+                    "old_value": old_val,
+                    "new_value": "",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "message": f"Cleared field '{field_label}'"
+                }
+                history.append(act)
+                last_action = act
 
     # Set selected_node to list of all modified node IDs for multi-field AI focus highlighting
     if successful_updates:
@@ -393,15 +418,23 @@ async def update_shared_state_node(
         selected_node = [m.get("node", {}).get("node_id") for m in field_matches if m.get("node", {}).get("node_id")]
 
     # ── MCP Journey Progression & Active Step Evaluation ──────────
-    previous_journey_status = state.get("journeyStatus")  # capture before any update
-    journey_info = mcp_get_journey_step(form_tree, field_values)
-    journey_status = journey_info.get("journey_status", "IN_PROGRESS")
-    
-    if journey_info.get("active_tab_id"):
-        selected_tab = journey_info.get("active_tab_id")
-
-    if intent_type == IntentType.SUBMIT_APPLICATION:
+    if previous_journey_status == "SUBMITTED":
         journey_status = "SUBMITTED"
+        journey_info = {
+            "journey_status": "SUBMITTED",
+            "step_title": "Application Submitted",
+            "step_prompt": "",
+            "step_description": "Application under Underwriting Sanction Review.",
+        }
+    else:
+        journey_info = mcp_get_journey_step(form_tree, field_values)
+        journey_status = journey_info.get("journey_status", "IN_PROGRESS")
+        
+        if journey_info.get("active_tab_id"):
+            selected_tab = journey_info.get("active_tab_id")
+
+        if intent_type == IntentType.SUBMIT_APPLICATION:
+            journey_status = "SUBMITTED"
 
     updated_pending = {
         **pending,
@@ -423,6 +456,19 @@ async def update_shared_state_node(
         "pendingUpdates": updated_pending,
         "error": "\n".join(validation_errors),
     }
+
+    # Persist latest form field values to PostgreSQL
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+    thread_id = str(configurable.get("thread_id") or "default")
+    try:
+        save_thread_form_state(
+            thread_id=thread_id,
+            field_values=field_values,
+            selected_tab=selected_tab,
+            journey_status=journey_status,
+        )
+    except Exception as e:
+        logger.debug("Failed to persist thread form state: %s", e)
 
     # Stream state to React UI in real-time!
     await _emit(config, updates)
@@ -451,14 +497,87 @@ async def generate_response_node(
     journey_status = pending.get("journey_status", "IN_PROGRESS")
     journey_info = pending.get("journey_info") or {}
 
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else getattr(config, "configurable", {}) or {}
+    thread_id = str(configurable.get("thread_id") or "default")
+
     form_tree = state.get("formTree") or {}
     field_values = state.get("fieldValues") or {}
 
     content = ""
     card_dict = None
 
+    was_previously_submitted = (pending.get("previous_journey_status") == "SUBMITTED") or bool(get_thread_submission_status(thread_id))
+
+    # Guard: Application is already submitted in previous turns
+    if was_previously_submitted:
+        if intent_type in (IntentType.UPDATE_FIELD, IntentType.CLEAR_FIELD, IntentType.CONFIRM_CONSENT):
+            card_dict = {
+                "card_type": "already_submitted",
+                "title": "Application Already Submitted",
+                "message": "Your application has already been submitted and is under Underwriting Sanction Review. No further edits or modifications are permitted.",
+            }
+            content = (
+                "🔒 **Application Already Submitted**\n\n"
+                "Your application has already been submitted and is currently locked under **Underwriting Sanction Review**.\n\n"
+                "❌ **Editing is disabled**: You cannot modify customer details or any fields in this submitted application.\n\n"
+                "💡 *To apply for another loan, click **+ New Chat** in the top bar to start a fresh application.*"
+            )
+        elif intent_type == IntentType.SUBMIT_APPLICATION:
+            card_dict = {
+                "card_type": "already_submitted",
+                "title": "Application Already Submitted",
+                "message": "Your application has already been submitted and is under Underwriting Sanction Review. No further submissions are permitted.",
+            }
+            content = (
+                "🔒 **Application Already Submitted**\n\n"
+                "Your application is already submitted and under **Underwriting Sanction Review**.\n\n"
+                "No further submissions are permitted for this application.\n\n"
+                "💡 *To apply for another loan, click **+ New Chat** to begin a new application.*"
+            )
+        elif intent_type == IntentType.QUERY_FIELD and field_matches:
+            match_info = []
+            for m in field_matches:
+                node = m.get("node") or {}
+                lbl = node.get("label", "Field")
+                nid = node.get("node_id")
+                val = field_values.get(nid, node.get("value"))
+                val_disp = f"`{val}`" if val is not None and val != "" else "*(empty)*"
+                match_info.append(f"• **{lbl}**: {val_disp}")
+
+            first_node = field_matches[0].get("node") or {}
+            card_dict = {
+                "card_type": "field_info",
+                "title": f"Field Information: {first_node.get('label')}",
+                "field_label": first_node.get("label"),
+                "value": str(field_values.get(first_node.get("node_id"), "")),
+                "node_id": first_node.get("node_id"),
+                "field_type": first_node.get("field_type", "text"),
+                "readonly": True,
+                "required": first_node.get("required", False)
+            }
+            content = "🔍 **Field Information Query (Submitted Application - Read-Only)**:\n\n" + "\n".join(match_info)
+        elif intent_type == IntentType.SUMMARIZE_FORM:
+            card_dict = get_form_summary_data(form_tree, field_values)
+            content = generate_form_summary(form_tree, field_values)
+        elif intent_type == IntentType.PLOT_CHART:
+            ctype = intent_data.get("chart_type", "pie_chart")
+            card_dict = get_chart_analysis_data(form_tree, field_values, chart_type=ctype)
+            chart_title = card_dict.get("title", "Chart Analysis")
+            content = f"📊 **{chart_title}**\n\n*Rendering real-time interactive visual graph...*"
+        else:
+            card_dict = {
+                "card_type": "already_submitted",
+                "title": "Application Already Submitted",
+                "message": "This application has already been submitted and is under Underwriting Sanction Review. No further edits or submissions are permitted.",
+            }
+            content = (
+                "🔒 **Application Already Submitted**\n\n"
+                "This application has been successfully submitted and is under **Underwriting Sanction Review**.\n\n"
+                "You can inspect your submitted details using the **Review & Edit** popup, or click **+ New Chat** in the top bar to start a fresh loan application."
+            )
+
     # Case 1: Consent Confirmation
-    if intent_type == IntentType.CONFIRM_CONSENT:
+    elif intent_type == IntentType.CONFIRM_CONSENT:
         next_step = journey_info.get("step_title", "Step 1: Personal Details – Borrower")
         next_prompt = journey_info.get("step_prompt", "")
         next_desc = journey_info.get("step_description", "")
@@ -478,32 +597,23 @@ async def generate_response_node(
             f"{next_prompt}"
         )
 
-    # Case 2: Final Submission Request
+    # Case 2: Final Submission Request (First-time submission)
     elif intent_type == IntentType.SUBMIT_APPLICATION or journey_status == "SUBMITTED":
-        # Guard: use previous_journey_status (before this turn's update) to detect re-submission
-        if intent_type == IntentType.SUBMIT_APPLICATION and pending.get("previous_journey_status") == "SUBMITTED":
-            card_dict = {
-                "card_type": "already_submitted",
-                "title": "Application Already Submitted",
-                "message": "Your application has already been submitted and is under Underwriting Sanction Review. No further edits or re-submissions are permitted.",
-            }
-            content = (
-                "🔒 **Application Already Submitted**\n\n"
-                "Your application is already submitted and under **Underwriting Sanction Review**.\n\n"
-                "You can only **preview** your application details at this stage. "
-                "No further modifications or re-submissions are allowed."
-            )
-        else:
-            card_dict = mcp_submit_application(form_tree, field_values)
-            app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
-            content = (
-                f"🎉 **Application Submitted Successfully!**\n\n"
-                f"• **Application Reference**: `{app_ref}`\n"
-                f"• **Applicant**: `{field_values.get('borrowerName') or 'Applicant'}`\n"
-                f"• **Status**: `Underwriting Sanction Review`\n"
-                f"• **Timestamp**: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
-                f"Thank you! Your mortgage loan application has been recorded. Our credit underwriting officer will contact you shortly."
-            )
+        card_dict = mcp_submit_application(form_tree, field_values)
+        app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
+        try:
+            mark_thread_submitted(thread_id=thread_id, submission_ref=app_ref)
+        except Exception as e:
+            logger.warning("Failed to persist thread submission in DB: %s", e)
+
+        content = (
+            f"🎉 **Application Submitted Successfully!**\n\n"
+            f"• **Application Reference**: `{app_ref}`\n"
+            f"• **Applicant**: `{field_values.get('borrowerName') or 'Applicant'}`\n"
+            f"• **Status**: `Underwriting Sanction Review`\n"
+            f"• **Timestamp**: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
+            f"Thank you! Your mortgage loan application has been recorded. Our credit underwriting officer will contact you shortly."
+        )
 
     # Case 3: Review Stage Request or Form Complete
     elif intent_type == IntentType.REVIEW_APPLICATION or journey_status == "REVIEW":
