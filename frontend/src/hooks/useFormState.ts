@@ -101,16 +101,24 @@ export function useFormState(threadId?: string) {
         const loadedTab = data.selected_tab || defaultFormState.selectedTab;
         const loadedJourney = data.journey_status || defaultFormState.journeyStatus;
 
-        setState({
-          ...state,
-          fieldValues: {
-            ...defaultFormState.fieldValues,
-            ...loadedValues,
-          },
+        const mergedValues = {
+          ...defaultFormState.fieldValues,
+          ...loadedValues,
+        };
+
+        for (const [k, v] of Object.entries(loadedValues)) {
+          if (v !== undefined && v !== null && v !== "") {
+            mergedValues[k] = v;
+          }
+        }
+
+        setState(prev => ({
+          ...prev,
+          fieldValues: mergedValues,
           selectedTab: loadedTab,
           journeyStatus: loadedJourney,
           error: null,
-        });
+        }));
         console.log(`[PostgreSQL] Loaded form state for thread '${targetThreadId}':`, Object.keys(loadedValues).length, "fields");
         return data;
       }
@@ -133,6 +141,9 @@ export function useFormState(threadId?: string) {
    */
   const syncStateToBackend = (values: Record<string, any>, tab: string, journey?: string) => {
     if (!threadId) return;
+    if (state.journeyStatus === "SUBMITTED" || journey === "SUBMITTED") {
+      return; // Do not overwrite submitted state with unhydrated client state
+    }
     const user = localStorage.getItem("auth_username");
     fetch(`${BACKEND_URL}/chat/${encodeURIComponent(threadId)}/state`, {
       method: "POST",

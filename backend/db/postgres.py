@@ -9,6 +9,8 @@ Provides:
 """
 
 import os
+import time
+from datetime import datetime, timezone
 import json
 import logging
 from typing import Dict, Any, List, Optional
@@ -892,6 +894,72 @@ def get_thread_submission_status(thread_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def extract_fields_from_chat_history(thread_id: str, cur) -> Dict[str, Any]:
+    """
+    Extracts and aggregates all field values recorded across all messages in chat_messages for thread_id.
+    """
+    cur.execute(
+        """
+        SELECT role, content, metadata FROM chat_messages 
+        WHERE thread_id = %s 
+        ORDER BY id ASC;
+        """,
+        (thread_id,),
+    )
+    msgs = cur.fetchall()
+    recovered: Dict[str, Any] = {}
+
+    for m in msgs:
+        meta = m.get("metadata") or {}
+        ctype = meta.get("card_type")
+        flabel = meta.get("field_label")
+
+        # 1. Consent updates
+        if flabel == "Consents & Declarations" or ctype == "confirm_consent" or "Agreement Declarations Confirmed" in meta.get("title", ""):
+            recovered["isCheckedTermandCond"] = True
+            recovered["isCheckedLifestyle"] = True
+            recovered["isCheckedPrivacy"] = True
+            recovered["agreeTerms"] = True
+            recovered["agreeLifestyle"] = True
+            recovered["agreePrivacy"] = True
+
+        # 2. updated_fields list: [{"node_id": "borrowerName", "new_value": "Ali Ahmad"}, ...]
+        for u in meta.get("updated_fields", []):
+            if isinstance(u, dict) and u.get("node_id") and u.get("new_value") not in (None, ""):
+                recovered[u["node_id"]] = u["new_value"]
+
+        # 3. updates list: [{"node_id": "...", "value": "..."}]
+        for u in meta.get("updates", []):
+            if isinstance(u, dict) and u.get("node_id") and u.get("value") not in (None, ""):
+                recovered[u["node_id"]] = u["value"]
+
+        # 4. single field_info or update_success with node_id
+        if meta.get("node_id") and meta.get("new_value") not in (None, ""):
+            recovered[meta["node_id"]] = meta["new_value"]
+        elif meta.get("node_id") and meta.get("value") not in (None, ""):
+            recovered[meta["node_id"]] = meta["value"]
+
+        # 5. review_summary tabs: [{"sections": [{"fields": [{"node_id": "...", "value": "..."}]}]}]
+        for tab in meta.get("tabs", []):
+            if isinstance(tab, dict):
+                for sec in tab.get("sections", []):
+                    if isinstance(sec, dict):
+                        for f in sec.get("fields", []):
+                            if isinstance(f, dict) and f.get("node_id") and f.get("value") not in (None, ""):
+                                recovered[f["node_id"]] = f["value"]
+
+        # 6. Submission success metadata
+        if meta.get("applicant_name") and meta["applicant_name"] not in ("Applicant", ""):
+            recovered["borrowerName"] = meta["applicant_name"]
+        if meta.get("loan_amount") and meta["loan_amount"] not in ("", None):
+            try:
+                recovered["loanAmount"] = int(meta["loan_amount"])
+            except Exception:
+                recovered["loanAmount"] = meta["loan_amount"]
+
+    return recovered
+
+
 def save_thread_form_state(
     thread_id: str,
     field_values: Dict[str, Any],
@@ -901,6 +969,7 @@ def save_thread_form_state(
 ) -> bool:
     """
     Persists the full form field values, active tab, and journey status for a specific thread_id.
+    Merges non-empty values over existing values to prevent accidental blank overwrites.
     """
     pool = get_db_pool()
     if pool is None or not thread_id:
@@ -919,7 +988,42 @@ def save_thread_form_state(
                         if r2 and r2.get("username"):
                             username = r2.get("username")
 
-                fvals_json = json.dumps(field_values or {})
+                # Fetch existing row
+                cur.execute("SELECT field_values, journey_status, selected_tab FROM thread_form_state WHERE thread_id = %s;", (thread_id,))
+                existing_row = cur.fetchone()
+                existing_fvals = existing_row.get("field_values") or {} if existing_row else {}
+                existing_jstat = existing_row.get("journey_status") if existing_row else None
+                existing_tab = existing_row.get("selected_tab") if existing_row else None
+
+                # Also check if thread was submitted
+                cur.execute("SELECT submission_ref FROM thread_submissions WHERE thread_id = %s;", (thread_id,))
+                sub_check = cur.fetchone()
+                is_sub = bool(sub_check and sub_check.get("submission_ref"))
+
+                # Reconstruct any fields from chat messages
+                chat_recovered = extract_fields_from_chat_history(thread_id, cur)
+
+                merged_fvals = dict(chat_recovered)
+                for k, v in existing_fvals.items():
+                    if k in merged_fvals and merged_fvals[k] and not v:
+                        continue
+                    if v is not None and v != "":
+                        merged_fvals[k] = v
+                    elif k not in merged_fvals:
+                        merged_fvals[k] = v
+
+                for k, v in (field_values or {}).items():
+                    if k in merged_fvals and merged_fvals[k] and not v:
+                        continue
+                    if v is not None and v != "":
+                        merged_fvals[k] = v
+                    elif k not in merged_fvals:
+                        merged_fvals[k] = v
+
+                effective_jstat = "SUBMITTED" if is_sub else (journey_status or existing_jstat or "IN_PROGRESS")
+                effective_tab = selected_tab or existing_tab or "tab_consents"
+
+                fvals_json = json.dumps(merged_fvals)
                 cur.execute(
                     """
                     INSERT INTO thread_form_state (thread_id, username, field_values, selected_tab, journey_status, updated_at)
@@ -931,7 +1035,7 @@ def save_thread_form_state(
                         username = COALESCE(EXCLUDED.username, thread_form_state.username),
                         updated_at = CURRENT_TIMESTAMP;
                     """,
-                    (thread_id, username, fvals_json, selected_tab or "tab_consents", journey_status or "IN_PROGRESS"),
+                    (thread_id, username, fvals_json, effective_tab, effective_jstat),
                 )
                 if username:
                     cur.execute(
@@ -953,6 +1057,7 @@ def save_thread_form_state(
 def get_thread_form_state(thread_id: str) -> Dict[str, Any]:
     """
     Retrieves the saved form field values, active tab, and journey status for a thread_id.
+    Recovers all field values recorded in chat_messages and ensures full persistence.
     """
     pool = get_db_pool()
     if pool is None or not thread_id:
@@ -975,47 +1080,54 @@ def get_thread_form_state(thread_id: str) -> Dict[str, Any]:
                 sub_at = sub_row.get("submitted_at").isoformat() if (sub_row and sub_row.get("submitted_at")) else None
                 username = sub_row.get("username") if sub_row else None
 
-                # 2. Check thread_form_state
+                # 2. Extract any field values recorded across all chat_messages
+                chat_recovered = extract_fields_from_chat_history(thread_id, cur)
+
+                # 3. Check thread_form_state
                 cur.execute("SELECT field_values, selected_tab, journey_status, updated_at, username FROM thread_form_state WHERE thread_id = %s;", (thread_id,))
                 row = cur.fetchone()
-                if row:
-                    fvals = row.get("field_values") or {}
-                    stab = row.get("selected_tab") or "tab_consents"
-                    jstat = "SUBMITTED" if is_sub else (row.get("journey_status") or "IN_PROGRESS")
-                    uname = row.get("username") or username
-                    return {
-                        "thread_id": thread_id,
-                        "username": uname,
-                        "field_values": fvals,
-                        "selected_tab": stab,
-                        "journey_status": jstat,
-                        "is_submitted": is_sub,
-                        "submission_ref": sub_ref,
-                        "submitted_at": sub_at,
-                    }
 
-                # 3. Fallback: Reconstruct basic fields from chat_messages if form state was not yet explicitly saved
-                cur.execute("SELECT role, content, metadata FROM chat_messages WHERE thread_id = %s ORDER BY id ASC;", (thread_id,))
-                msgs = cur.fetchall()
-                fvals = {}
-                for m in msgs:
-                    meta = m.get("metadata") or {}
-                    if meta.get("card_type") == "update_success":
-                        nl = meta.get("field_label")
-                        if nl == "Consents & Declarations":
-                            fvals["agreeTerms"] = True
-                            fvals["agreeLifestyle"] = True
-                            fvals["agreePrivacy"] = True
-                    for u in meta.get("updates", []):
-                        if isinstance(u, dict) and u.get("node_id"):
-                            fvals[u["node_id"]] = u.get("value")
+                fvals = dict(chat_recovered)
+                stab = "tab_decision" if is_sub else "tab_consents"
+                jstat = "SUBMITTED" if is_sub else "IN_PROGRESS"
+                uname = username
+
+                if row:
+                    stored_fvals = row.get("field_values") or {}
+                    for k, v in stored_fvals.items():
+                        # If chat recovered a non-empty/truthy value, don't let stored False/empty overwrite it
+                        if k in fvals and fvals[k] and not v:
+                            continue
+                        if v is not None and v != "":
+                            fvals[k] = v
+                        elif k not in fvals:
+                            fvals[k] = v
+                    stab = row.get("selected_tab") or stab
+                    jstat = "SUBMITTED" if is_sub else (row.get("journey_status") or jstat)
+                    uname = row.get("username") or uname
+
+                # Self-heal thread_form_state table in PostgreSQL with complete merged values
+                fvals_json = json.dumps(fvals)
+                cur.execute(
+                    """
+                    INSERT INTO thread_form_state (thread_id, username, field_values, selected_tab, journey_status, updated_at)
+                    VALUES (%s, %s, %s::jsonb, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (thread_id) DO UPDATE SET
+                        field_values = EXCLUDED.field_values,
+                        selected_tab = COALESCE(EXCLUDED.selected_tab, thread_form_state.selected_tab),
+                        journey_status = COALESCE(EXCLUDED.journey_status, thread_form_state.journey_status),
+                        username = COALESCE(EXCLUDED.username, thread_form_state.username),
+                        updated_at = CURRENT_TIMESTAMP;
+                    """,
+                    (thread_id, uname, fvals_json, stab, jstat),
+                )
 
                 return {
                     "thread_id": thread_id,
-                    "username": username,
+                    "username": uname,
                     "field_values": fvals,
-                    "selected_tab": "tab_decision" if is_sub else "tab_consents",
-                    "journey_status": "SUBMITTED" if is_sub else "IN_PROGRESS",
+                    "selected_tab": stab,
+                    "journey_status": jstat,
                     "is_submitted": is_sub,
                     "submission_ref": sub_ref,
                     "submitted_at": sub_at,
@@ -1030,3 +1142,165 @@ def get_thread_form_state(thread_id: str) -> Dict[str, Any]:
             "is_submitted": False,
             "submission_ref": None,
         }
+
+
+def create_new_user_thread(username: str) -> Dict[str, Any]:
+    """
+    Creates a brand new distinct application journey thread for the given user,
+    preserving any existing application history.
+    """
+    clean_user = (username or "").strip()
+    if not clean_user:
+        clean_user = "anonymous"
+    
+    ts = int(time.time() * 1000)
+    new_thread_id = f"thread_usr_{clean_user.lower()}_{ts}"
+    pool = get_db_pool()
+
+    if pool is not None:
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    # Register new thread
+                    cur.execute(
+                        """
+                        INSERT INTO user_threads (thread_id, username, created_at, last_activity)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT (thread_id) DO UPDATE SET
+                            username = EXCLUDED.username,
+                            last_activity = CURRENT_TIMESTAMP;
+                        """,
+                        (new_thread_id, clean_user),
+                    )
+                    # Initialize clean form state
+                    cur.execute(
+                        """
+                        INSERT INTO thread_form_state (thread_id, username, field_values, selected_tab, journey_status, updated_at)
+                        VALUES (%s, %s, '{}'::jsonb, 'tab_consents', 'IN_PROGRESS', CURRENT_TIMESTAMP)
+                        ON CONFLICT (thread_id) DO UPDATE SET
+                            journey_status = 'IN_PROGRESS',
+                            selected_tab = 'tab_consents',
+                            updated_at = CURRENT_TIMESTAMP;
+                        """,
+                        (new_thread_id, clean_user),
+                    )
+        except Exception as e:
+            logger.error("create_new_user_thread DB insert failed: %s", e)
+
+    return {
+        "thread_id": new_thread_id,
+        "username": clean_user,
+        "is_submitted": False,
+        "submission_ref": None,
+        "submitted_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "journey_status": "IN_PROGRESS",
+        "selected_tab": "tab_consents",
+        "field_values": {},
+    }
+
+
+def get_user_applications_summary(username: str) -> Dict[str, Any]:
+    """
+    Retrieves all application journeys (submitted and drafts) for a user with rich metadata
+    for the Dashboard view.
+    """
+    clean_user = (username or "").strip()
+    if not clean_user:
+        return {"applications": [], "stats": {"total": 0, "submitted": 0, "in_progress": 0}}
+
+    pool = get_db_pool()
+    if pool is None:
+        return {"applications": [], "stats": {"total": 0, "submitted": 0, "in_progress": 0}}
+
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                # Find all distinct threads for this user
+                cur.execute(
+                    """
+                    SELECT DISTINCT thread_id FROM (
+                        SELECT thread_id FROM user_threads WHERE LOWER(username) = LOWER(%s)
+                        UNION
+                        SELECT thread_id FROM thread_submissions WHERE LOWER(username) = LOWER(%s)
+                        UNION
+                        SELECT thread_id FROM thread_form_state WHERE LOWER(username) = LOWER(%s)
+                        UNION
+                        SELECT thread_id FROM chat_messages WHERE LOWER(username) = LOWER(%s)
+                    ) t;
+                    """,
+                    (clean_user, clean_user, clean_user, clean_user),
+                )
+                rows = cur.fetchall()
+                thread_ids = [r["thread_id"] for r in rows if r.get("thread_id")]
+
+                applications = []
+                for tid in thread_ids:
+                    # Get state & submissions info
+                    state = get_thread_form_state(tid)
+                    fvals = state.get("field_values") or {}
+                    is_sub = state.get("is_submitted", False)
+                    sub_ref = state.get("submission_ref")
+                    sub_at = state.get("submitted_at")
+
+                    # Extract metadata for card
+                    borrower_name = fvals.get("borrowerName") or clean_user.capitalize()
+                    loan_amount = fvals.get("loanAmount") or fvals.get("selectedRequiredAmount")
+                    loan_type = fvals.get("loanType") or "Home Purchase Loan"
+                    property_addr = fvals.get("propertyAddressLine1") or fvals.get("propertyEmirates") or "UAE Property"
+                    sanction_status = fvals.get("sanction_status") or ("Underwriting Sanction Review" if is_sub else "In Progress")
+
+                    # Determine dates
+                    cur.execute("SELECT created_at, last_activity FROM user_threads WHERE thread_id = %s;", (tid,))
+                    ut_row = cur.fetchone()
+                    created_at = ut_row.get("created_at").isoformat() if (ut_row and ut_row.get("created_at")) else None
+                    last_act = ut_row.get("last_activity").isoformat() if (ut_row and ut_row.get("last_activity")) else None
+
+                    # Message count
+                    cur.execute("SELECT COUNT(id) as msg_count FROM chat_messages WHERE thread_id = %s;", (tid,))
+                    c_row = cur.fetchone()
+                    msg_count = c_row.get("msg_count", 0) if c_row else 0
+
+                    applications.append({
+                        "thread_id": tid,
+                        "username": clean_user,
+                        "is_submitted": is_sub,
+                        "submission_ref": sub_ref,
+                        "submitted_at": sub_at,
+                        "created_at": created_at or sub_at,
+                        "last_activity": last_act or sub_at,
+                        "status": sanction_status if is_sub else "In Progress",
+                        "borrower_name": borrower_name,
+                        "loan_amount": loan_amount,
+                        "loan_type": loan_type,
+                        "property_address": property_addr,
+                        "message_count": msg_count,
+                        "filled_fields_count": sum(1 for v in fvals.values() if v not in (None, "", False)),
+                    })
+
+                # Sort applications: Submitted first by submitted_at desc, then drafts by last_activity desc
+                applications.sort(
+                    key=lambda a: (
+                        1 if a["is_submitted"] else 0,
+                        a["submitted_at"] or a["last_activity"] or a["created_at"] or ""
+                    ),
+                    reverse=True
+                )
+
+                total_count = len(applications)
+                submitted_count = sum(1 for a in applications if a["is_submitted"])
+                in_prog_count = total_count - submitted_count
+
+                return {
+                    "username": clean_user,
+                    "applications": applications,
+                    "stats": {
+                        "total": total_count,
+                        "submitted": submitted_count,
+                        "in_progress": in_prog_count,
+                    }
+                }
+    except Exception as e:
+        logger.error("get_user_applications_summary failed for '%s': %s", clean_user, e)
+        return {"applications": [], "stats": {"total": 0, "submitted": 0, "in_progress": 0}}
+

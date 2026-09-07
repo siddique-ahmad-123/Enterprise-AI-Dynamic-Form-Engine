@@ -154,6 +154,44 @@ export function useChatSession(authUser?: string | null) {
     [authUser, loadThreadMessages]
   );
 
+  const createAndSwitchNewThread = useCallback(
+    async (setMessages?: (msgs: any[]) => void) => {
+      try {
+        const user = authUser || "anonymous";
+        const res = await fetch(`${BACKEND_URL}/applications/new`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newThreadId = data.thread_id;
+          if (newThreadId) {
+            setThreadId(newThreadId);
+            const key = getUserStorageKey(authUser);
+            localStorage.setItem(key, newThreadId);
+            if (setMessages) {
+              setMessages([]);
+            }
+            return newThreadId;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to create new application journey thread:", e);
+      }
+      // Fallback
+      const fallbackThread = `thread_usr_${(authUser || "anonymous").toLowerCase()}_${Date.now()}`;
+      setThreadId(fallbackThread);
+      const key = getUserStorageKey(authUser);
+      localStorage.setItem(key, fallbackThread);
+      if (setMessages) {
+        setMessages([]);
+      }
+      return fallbackThread;
+    },
+    [authUser]
+  );
+
   return {
     threadId,
     setThreadId,
@@ -162,6 +200,7 @@ export function useChatSession(authUser?: string | null) {
     isLoadingMessages,
     loadThreadMessages,
     startNewChat,
+    createAndSwitchNewThread,
     switchThread,
     backendUrl: BACKEND_URL,
   };

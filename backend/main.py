@@ -41,6 +41,8 @@ from db.postgres import (
     save_thread_form_state,
     get_thread_form_state,
     get_or_create_user_thread,
+    create_new_user_thread,
+    get_user_applications_summary,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -334,6 +336,33 @@ async def mark_thread_submitted_endpoint(payload: dict):
 async def get_db_status():
     """Returns the PostgreSQL connection health and status."""
     return check_db_health()
+
+
+@app.get("/applications/user/{username}")
+async def user_applications_endpoint(username: str):
+    """
+    Returns complete application history, statistics, and metadata for a user.
+    """
+    clean_user = username.strip() if username else ""
+    if not clean_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required.")
+    return get_user_applications_summary(clean_user)
+
+
+class NewApplicationRequest(BaseModel):
+    username: str
+
+
+@app.post("/applications/new")
+async def create_new_application_endpoint(payload: NewApplicationRequest):
+    """
+    Creates a new separate application journey for the user, preserving all previous applications.
+    """
+    clean_user = payload.username.strip()
+    if not clean_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required.")
+    new_app = create_new_user_thread(clean_user)
+    return new_app
 
 
 @app.get("/chat/sessions")
