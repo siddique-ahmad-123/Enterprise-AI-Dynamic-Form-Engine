@@ -18,6 +18,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // BACKEND_PROXY env var allows Docker Compose to override (e.g. http://backend:8000)
+    proxy: {
+      "/auth": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
+      "/chat": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
+      "/health": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
+    },
   },
   base:"/copilotkit_frontend/",
 });

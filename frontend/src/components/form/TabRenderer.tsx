@@ -8,6 +8,7 @@ interface TabRendererProps {
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
   selectedNode: string | string[] | null;
+  isSubmitted?: boolean;
 }
 
 export const TabRenderer: React.FC<TabRendererProps> = ({
@@ -15,6 +16,7 @@ export const TabRenderer: React.FC<TabRendererProps> = ({
   fieldValues,
   onFieldChange,
   selectedNode,
+  isSubmitted = false,
 }) => {
   const children = tabNode.children || [];
 
@@ -29,6 +31,7 @@ export const TabRenderer: React.FC<TabRendererProps> = ({
               fieldValues={fieldValues}
               onFieldChange={onFieldChange}
               selectedNode={selectedNode}
+              isSubmitted={isSubmitted}
             />
           );
         }
@@ -39,6 +42,7 @@ export const TabRenderer: React.FC<TabRendererProps> = ({
             fieldValues={fieldValues}
             onFieldChange={onFieldChange}
             selectedNode={selectedNode}
+            isSubmitted={isSubmitted}
           />
         );
       })}

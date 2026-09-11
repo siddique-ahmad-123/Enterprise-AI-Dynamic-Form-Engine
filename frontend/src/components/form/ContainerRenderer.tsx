@@ -7,6 +7,7 @@ interface ContainerRendererProps {
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
   selectedNode: string | string[] | null;
+  isSubmitted?: boolean;
 }
 
 export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
@@ -14,6 +15,7 @@ export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
   fieldValues,
   onFieldChange,
   selectedNode,
+  isSubmitted = false,
 }) => {
   const { node_type, label, children = [], description } = node;
 
@@ -28,6 +30,7 @@ export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
         value={fieldValues[node.node_id]}
         onChange={onFieldChange}
         isSelected={isSelected}
+        isSubmitted={isSubmitted}
       />
     );
   }
@@ -63,6 +66,7 @@ export const ContainerRenderer: React.FC<ContainerRendererProps> = ({
                 fieldValues={fieldValues}
                 onFieldChange={onFieldChange}
                 selectedNode={selectedNode}
+                isSubmitted={isSubmitted}
               />
             </div>
           );

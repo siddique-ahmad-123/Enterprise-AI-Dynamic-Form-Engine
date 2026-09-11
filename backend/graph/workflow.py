@@ -21,6 +21,7 @@ Nodes pipeline:
     END
 """
 
+import logging
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -35,13 +36,16 @@ from graph.nodes import (
     generate_response_node,
 )
 
+logger = logging.getLogger(__name__)
 
-def create_form_graph():
+
+def create_form_graph(checkpointer=None):
     """
     Builds and compiles the dynamic form assistant LangGraph workflow.
+    Uses PostgreSQL checkpointer (PostgresSaver) if available, falling back to MemorySaver.
 
     Returns:
-        CompiledStateGraph with MemorySaver checkpointer enabled for CopilotKit.
+        CompiledStateGraph with persistent checkpointer enabled for CopilotKit thread tracking.
     """
     workflow = StateGraph(FormAgentState)
 
@@ -64,11 +68,13 @@ def create_form_graph():
     workflow.add_edge("update_shared_state", "generate_response")
     workflow.add_edge("generate_response", END)
 
-    # Memory checkpointer required for CopilotKit thread state tracking
-    checkpointer = MemorySaver()
+    if checkpointer is None:
+        # Always use MemorySaver as fallback; lifespan replaces this with postgres if available
+        checkpointer = MemorySaver()
 
     return workflow.compile(checkpointer=checkpointer)
 
 
-# Singleton graph instance
+# Singleton compiled with MemorySaver; lifespan swaps in AsyncPostgresSaver after startup
 form_graph = create_form_graph()
+

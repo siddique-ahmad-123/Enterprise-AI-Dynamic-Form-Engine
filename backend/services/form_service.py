@@ -6,8 +6,10 @@ understand user intent, validate form actions, and generate intelligent response
 """
 
 import os
+import re
 import json
 import logging
+import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -35,15 +37,24 @@ def get_llm() -> ChatOpenAI:
     )
 
 
-INTENT_SYSTEM_PROMPT = """
+INTENT_SYSTEM_PROMPT_TEMPLATE = """
 You are an expert Enterprise AI Dynamic Form Intent Classifier & Journey Controller.
 Given a user instruction and a dynamic hierarchical form tree, classify the user's intent and extract all field updates, answers, or queries across ALL form tabs.
+
+CURRENT DATE & SYSTEM CONTEXT:
+- Today's Date: {today_date} (Current Year: {current_year}).
 
 CRITICAL INSTRUCTIONS FOR MULTI-TAB EXTRACTIONS & CONVERSATIONAL FORM FILLING:
 1. MULTIPLE FIELD UPDATES: The user instruction MAY CONTAIN MULTIPLE FIELD UPDATES in a single turn. Extract ALL requested field updates into the `updates` array!
 2. TAB 0 (CONSENTS): If user confirms ("Yes", "I agree", "Accept"), map to agreement checkboxes: `isCheckedTermandCond`, `isCheckedLifestyle`, `isCheckedPrivacy` -> true.
 3. TAB 1 (PERSONAL DETAILS & ADDRESS):
    - Extract Name (`borrowerName`), Date of Birth (`borrowerDOB`), Mobile (`borrowerMobileNo`), Email (`borrowerEmailId`).
+   - AGE & DATE OF BIRTH EXTRACTION RULES:
+     * If user explicitly states their AGE (e.g. "I am 24 years old", "24 year old", "age 24", "my age is 24"):
+       Calculate `borrowerDOB` in ISO format `YYYY-MM-DD` as `{current_year} minus <age>` on today's month and day (e.g., for age 24 when today is {today_date}, `borrowerDOB` = "{dob_example_24}").
+       Include `{{"target_field_query": "borrowerDOB", "target_value": "{dob_example_24}"}}` in the updates array.
+     * If user explicitly gives a DOB (e.g. "8 sep 2002", "1995-05-15", "15/05/1995", "08-09-2002"):
+       Map `borrowerDOB` to ISO format `YYYY-MM-DD` (e.g. "2002-09-08").
    - Unstructured Address: Decompose address into `Address Line 1`, `Address Line 2`, `City`, `State`, `PIN Code`, `Country`.
 4. TAB 2 (CO-BORROWER SELECTION):
    - If user says "No", "No co-borrower", "I don't need a co-borrower" -> map `isCoBorrower` to "No".
@@ -69,23 +80,73 @@ Intents:
 - SUMMARIZE_FORM: User asks for a summary or completion status.
 - FIND_MISSING: User asks which fields are empty or required.
 - PLOT_CHART: User asks to render a pie chart, bar chart, or graph.
-- UNKNOWN: General conversation or unrelated greeting.
+- GUARDRAIL: The request is UNRELATED to the mortgage loan application OR asks for private/confidential company information (internal systems, underwriting algorithms, other users' data, employee records, pricing models, database schemas, security details, company policies). Also applies to completely off-topic requests: jokes, current events, investment advice, general knowledge. Use `reasoning` to state why.
+- UNKNOWN: Only harmless greetings with no information request (e.g. "Hi", "Hello", "Thanks", "Good morning").
 
 JSON Output Format (Strictly valid JSON):
-{
+{{
     "intent": "UPDATE_FIELD",
     "target_field_query": "borrowerName",
     "target_tab_query": null,
     "target_value": "John Doe",
     "chart_type": null,
     "updates": [
-        {"target_field_query": "borrowerName", "target_value": "John Doe"},
-        {"target_field_query": "borrowerDOB", "target_value": "1995-05-15"},
-        {"target_field_query": "borrowerMobileNo", "target_value": "+971501234567"}
+        {{"target_field_query": "borrowerName", "target_value": "John Doe"}},
+        {{"target_field_query": "borrowerDOB", "target_value": "1995-05-15"}},
+        {{"target_field_query": "borrowerMobileNo", "target_value": "+971501234567"}}
     ],
     "reasoning": "Extracted personal details from conversational response"
-}
+}}
 """
+
+
+def parse_date_to_iso(val: Any) -> str:
+    """Parses arbitrary date representations into YYYY-MM-DD ISO format."""
+    if not val:
+        return ""
+    val_clean = str(val).strip()
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', val_clean):
+        return val_clean
+    try:
+        from dateutil import parser
+        dt = parser.parse(val_clean).date()
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return val_clean
+
+
+def normalize_dob_and_age_updates(user_text: str, updates: List[SingleFieldUpdate]) -> List[SingleFieldUpdate]:
+    """
+    Ensures that when a user mentions their age or date of birth,
+    borrowerDOB is calculated mathematically and formatted to YYYY-MM-DD.
+    """
+    today = datetime.date.today()
+    age_pattern = r'\b(?:i\s+am\s+|i\'m\s+|age\s*(?:is|:)?\s*)?(\d{1,2})\s*(?:years?\s*old|yrs?\s*old|year\s*old)\b|\bage\s*(?:is|:)?\s*(\d{1,2})\b'
+    m = re.search(age_pattern, user_text, re.IGNORECASE)
+    stated_age = None
+    if m:
+        val = m.group(1) or m.group(2)
+        if val and val.isdigit():
+            stated_age = int(val)
+
+    if stated_age is not None and 18 <= stated_age <= 100:
+        calc_dob = f"{today.year - stated_age:04d}-{today.month:02d}-{today.day:02d}"
+        dob_found = False
+        for u in updates:
+            if u.target_field_query in ("borrowerDOB", "dob", "dateOfBirth", "Date of Birth"):
+                u.target_field_query = "borrowerDOB"
+                u.target_value = calc_dob
+                dob_found = True
+                break
+        if not dob_found:
+            updates.append(SingleFieldUpdate(target_field_query="borrowerDOB", target_value=calc_dob))
+    else:
+        for u in updates:
+            if u.target_field_query in ("borrowerDOB", "dob", "dateOfBirth", "Date of Birth"):
+                u.target_field_query = "borrowerDOB"
+                u.target_value = parse_date_to_iso(u.target_value)
+
+    return updates
 
 
 async def analyze_user_intent(
@@ -187,11 +248,22 @@ async def analyze_user_intent(
 
     # LLM Intent Classifier for complex & multi-field commands
     try:
+        today = datetime.date.today()
+        today_str = today.strftime("%Y-%m-%d")
+        current_year = today.year
+        dob_24 = f"{current_year - 24:04d}-{today.month:02d}-{today.day:02d}"
+
+        system_prompt = INTENT_SYSTEM_PROMPT_TEMPLATE.format(
+            today_date=today_str,
+            current_year=current_year,
+            dob_example_24=dob_24
+        )
+
         llm = get_llm()
         tree_context = format_tree_as_markdown(form_tree, field_values)
 
         messages = [
-            SystemMessage(content=INTENT_SYSTEM_PROMPT),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=f"Form Hierarchy:\n{tree_context}\n\nUser Instruction: {user_text}")
         ]
 
@@ -227,6 +299,9 @@ async def analyze_user_intent(
                 target_field_query=str(parsed.get("target_field_query")),
                 target_value=parsed.get("target_value")
             ))
+
+        # Normalize and mathematically calculate accurate Date of Birth & Age if user stated age
+        updates_list = normalize_dob_and_age_updates(user_text, updates_list)
 
         return IntentAnalysis(
             intent=intent_enum,
@@ -627,19 +702,36 @@ def calculate_derived_fields(field_values: Dict[str, Any]) -> Dict[str, Any]:
     dob = field_values.get("borrowerDOB")
     if dob and isinstance(dob, str) and dob.strip():
         try:
-            birth_year = None
-            if "-" in dob:
-                parts = dob.split("-")
-                if len(parts[0]) == 4:
-                    birth_year = int(parts[0])
-                elif len(parts) > 2 and len(parts[2]) == 4:
-                    birth_year = int(parts[2])
-            elif dob.isdigit() and len(dob) == 4:
-                birth_year = int(dob)
+            today = datetime.date.today()
+            birth_date = None
+            dob_clean = dob.strip()
 
-            if birth_year:
-                current_year = datetime.datetime.now().year
-                calc_age = current_year - birth_year
+            if "-" in dob_clean:
+                parts = dob_clean.split("-")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        birth_date = datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    elif len(parts[2]) == 4:
+                        birth_date = datetime.date(int(parts[2]), int(parts[1]), int(parts[0]))
+            elif "/" in dob_clean:
+                parts = dob_clean.split("/")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        birth_date = datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    elif len(parts[2]) == 4:
+                        birth_date = datetime.date(int(parts[2]), int(parts[1]), int(parts[0]))
+            elif dob_clean.isdigit() and len(dob_clean) == 4:
+                birth_date = datetime.date(int(dob_clean), today.month, today.day)
+
+            if not birth_date:
+                try:
+                    from dateutil import parser
+                    birth_date = parser.parse(dob_clean).date()
+                except Exception:
+                    pass
+
+            if birth_date:
+                calc_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
                 if 18 <= calc_age <= 100:
                     derived_updates["borrowerAge"] = calc_age
         except Exception as e:

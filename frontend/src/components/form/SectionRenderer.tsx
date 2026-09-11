@@ -7,6 +7,7 @@ interface SectionRendererProps {
   fieldValues: Record<string, any>;
   onFieldChange: (nodeId: string, value: any) => void;
   selectedNode: string | string[] | null;
+  isSubmitted?: boolean;
 }
 
 export const SectionRenderer: React.FC<SectionRendererProps> = ({
@@ -14,6 +15,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
   fieldValues,
   onFieldChange,
   selectedNode,
+  isSubmitted = false,
 }) => {
   const { label, description, children = [] } = node;
 
@@ -36,6 +38,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
           fieldValues={fieldValues}
           onFieldChange={onFieldChange}
           selectedNode={selectedNode}
+          isSubmitted={isSubmitted}
         />
       </div>
     </div>

@@ -237,18 +237,36 @@ def mcp_update_form_fields(
     dob = new_field_values.get("borrowerDOB")
     if dob and isinstance(dob, str) and dob.strip():
         try:
-            birth_year = None
-            if "-" in dob:
-                parts = dob.split("-")
-                if len(parts[0]) == 4:
-                    birth_year = int(parts[0])
-                elif len(parts) > 2 and len(parts[2]) == 4:
-                    birth_year = int(parts[2])
-            elif dob.isdigit() and len(dob) == 4:
-                birth_year = int(dob)
+            today = datetime.date.today()
+            birth_date = None
+            dob_clean = dob.strip()
 
-            if birth_year:
-                calc_age = datetime.datetime.now().year - birth_year
+            if "-" in dob_clean:
+                parts = dob_clean.split("-")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        birth_date = datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    elif len(parts[2]) == 4:
+                        birth_date = datetime.date(int(parts[2]), int(parts[1]), int(parts[0]))
+            elif "/" in dob_clean:
+                parts = dob_clean.split("/")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        birth_date = datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    elif len(parts[2]) == 4:
+                        birth_date = datetime.date(int(parts[2]), int(parts[1]), int(parts[0]))
+            elif dob_clean.isdigit() and len(dob_clean) == 4:
+                birth_date = datetime.date(int(dob_clean), today.month, today.day)
+
+            if not birth_date:
+                try:
+                    from dateutil import parser
+                    birth_date = parser.parse(dob_clean).date()
+                except Exception:
+                    pass
+
+            if birth_date:
+                calc_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
                 if 18 <= calc_age <= 100:
                     old_age = new_field_values.get("borrowerAge")
                     if old_age != calc_age:

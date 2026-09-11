@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   RefreshCw,
+  Lock,
 } from "lucide-react";
 import { FormNode, FormAction } from "../../types/form";
 import { TabRenderer } from "./TabRenderer";
@@ -19,6 +20,7 @@ interface FormRendererProps {
   selectedNode: string | string[] | null;
   lastAction: FormAction | null;
   isProcessing?: boolean;
+  isSubmitted?: boolean;
 }
 
 export const FormRenderer: React.FC<FormRendererProps> = ({
@@ -30,6 +32,7 @@ export const FormRenderer: React.FC<FormRendererProps> = ({
   selectedNode,
   lastAction,
   isProcessing = false,
+  isSubmitted = false,
 }) => {
   const tabContainerRef = useRef<HTMLDivElement>(null);
   const tabs = (formTree.children || []).filter((c) => c.node_type === "tab");
@@ -117,6 +120,24 @@ export const FormRenderer: React.FC<FormRendererProps> = ({
             </span>
           </div>
         )}
+
+        {/* Application Submitted Lock Banner */}
+        {isSubmitted && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+              <div>
+                <span className="font-bold text-amber-950 block">Application Submitted &amp; Locked</span>
+                <span className="text-[11px] text-amber-800">
+                  This application is currently under Underwriting Sanction Review. Form fields cannot be edited.
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 text-[10px] font-bold bg-amber-200/80 text-amber-900 border border-amber-300 rounded-lg">
+              Read-Only
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Enterprise Stepper Tab Bar (Exact Match with Reference Screenshot) */}
@@ -190,7 +211,13 @@ export const FormRenderer: React.FC<FormRendererProps> = ({
             <TabRenderer
               tabNode={currentTabNode}
               fieldValues={fieldValues}
-              onFieldChange={onFieldChange}
+              onFieldChange={(nodeId, value) => {
+                if (isSubmitted) {
+                  window.dispatchEvent(new CustomEvent("show-already-submitted"));
+                  return;
+                }
+                onFieldChange(nodeId, value);
+              }}
               selectedNode={selectedNode}
             />
           )}

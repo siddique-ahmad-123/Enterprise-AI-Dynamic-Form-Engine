@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useCoAgent, useCopilotAction } from "@copilotkit/react-core";
 import { FormNode, FormAgentState } from "../types/form";
 import { defaultFormState } from "../state/defaultFormTree";
@@ -63,26 +64,128 @@ export function isTabMandatoryComplete(tabNode: FormNode, fieldValues: Record<st
   return checkNode(tabNode);
 }
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
 /**
  * Custom hook connecting the React UI to the LangGraph form_agent
  * via CopilotKit bidirectional shared state.
  */
-export function useFormState() {
+export function useFormState(threadId?: string) {
+  const [localHydrated, setLocalHydrated] = useState<{
+    fieldValues: Record<string, any>;
+    selectedTab?: string;
+    journeyStatus?: string;
+  } | null>(null);
+
   const { state: rawState, setState, run, stop, running } = useCoAgent<FormAgentState>({
     name: "form_agent",
     initialState: defaultFormState,
   });
 
+  // Calculate merged field values:
+  // Base: defaultFormState.fieldValues (empty defaults)
+  // Layer 2: localHydrated.fieldValues (loaded from PostgreSQL)
+  // Layer 3: rawState.fieldValues (live updates from CoAgent/LangGraph)
+  const mergedFieldValues: Record<string, any> = {
+    ...defaultFormState.fieldValues,
+    ...(localHydrated?.fieldValues || {}),
+  };
+
+  if (rawState?.fieldValues) {
+    for (const [k, v] of Object.entries(rawState.fieldValues)) {
+      if (v !== undefined && v !== null && v !== "") {
+        mergedFieldValues[k] = v;
+      }
+    }
+  }
+
   // Merge raw state with defaults to prevent null/undefined during hydration
   const state: FormAgentState = {
     formTree: rawState?.formTree || defaultFormState.formTree,
-    fieldValues: { ...defaultFormState.fieldValues, ...(rawState?.fieldValues || {}) },
-    selectedTab: rawState?.selectedTab || defaultFormState.selectedTab,
+    fieldValues: mergedFieldValues,
+    selectedTab: rawState?.selectedTab || localHydrated?.selectedTab || defaultFormState.selectedTab,
     selectedNode: rawState?.selectedNode ?? defaultFormState.selectedNode,
     conversationHistory: rawState?.conversationHistory || defaultFormState.conversationHistory,
     lastAction: rawState?.lastAction ?? defaultFormState.lastAction,
+    journeyStatus: rawState?.journeyStatus || localHydrated?.journeyStatus || defaultFormState.journeyStatus,
     isProcessing: rawState?.isProcessing ?? running,
     error: rawState?.error ?? null,
+  };
+
+  /**
+   * Loads saved form field values and status from PostgreSQL for a given threadId
+   */
+  const loadFormState = async (targetThreadId: string) => {
+    if (!targetThreadId) return null;
+    try {
+      const res = await fetch(`${BACKEND_URL}/chat/${encodeURIComponent(targetThreadId)}/state`);
+      if (res.ok) {
+        const data = await res.json();
+        const loadedValues = data.field_values || {};
+        const loadedTab = data.selected_tab || defaultFormState.selectedTab;
+        const loadedJourney = data.journey_status || defaultFormState.journeyStatus;
+
+        const mergedValues = {
+          ...defaultFormState.fieldValues,
+          ...loadedValues,
+        };
+
+        for (const [k, v] of Object.entries(loadedValues)) {
+          if (v !== undefined && v !== null && v !== "") {
+            mergedValues[k] = v;
+          }
+        }
+
+        setLocalHydrated({
+          fieldValues: mergedValues,
+          selectedTab: loadedTab,
+          journeyStatus: loadedJourney,
+        });
+
+        setState(prev => ({
+          ...prev,
+          fieldValues: mergedValues,
+          selectedTab: loadedTab,
+          journeyStatus: loadedJourney,
+          error: null,
+        }));
+        console.log(`[PostgreSQL] Loaded form state for thread '${targetThreadId}':`, Object.keys(loadedValues).length, "fields");
+        return data;
+      }
+    } catch (e) {
+      console.warn("Failed to load form state from PostgreSQL:", e);
+    }
+    return null;
+  };
+
+  // Automatically load form state whenever threadId changes
+  useEffect(() => {
+    setLocalHydrated(null);
+    if (threadId) {
+      loadFormState(threadId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
+  /**
+   * Helper to persist form state changes to PostgreSQL
+   */
+  const syncStateToBackend = (values: Record<string, any>, tab: string, journey?: string) => {
+    if (!threadId) return;
+    if (state.journeyStatus === "SUBMITTED" || journey === "SUBMITTED") {
+      return; // Do not overwrite submitted state with unhydrated client state
+    }
+    const user = localStorage.getItem("auth_username");
+    fetch(`${BACKEND_URL}/chat/${encodeURIComponent(threadId)}/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        field_values: values,
+        selected_tab: tab,
+        journey_status: journey || state.journeyStatus || "IN_PROGRESS",
+        username: user,
+      }),
+    }).catch(() => {});
   };
 
   /**
@@ -114,26 +217,45 @@ export function useFormState() {
    * Updates a single field value and immediately synchronizes to CopilotKit shared state.
    */
   const updateFieldValue = (nodeId: string, value: any) => {
+    if (state.journeyStatus === "SUBMITTED") {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+
     const updatedValues = {
       ...state.fieldValues,
       [nodeId]: value,
     };
     const autoNav = getAutoNavState(updatedValues, nodeId);
+    const newTab = autoNav ? autoNav.selectedTab : state.selectedTab;
+
+    setLocalHydrated(prev => ({
+      fieldValues: updatedValues,
+      selectedTab: newTab,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
 
     setState({
       ...state,
       fieldValues: updatedValues,
       selectedNode: nodeId,
-      selectedTab: autoNav ? autoNav.selectedTab : state.selectedTab,
+      selectedTab: newTab,
       lastAction: autoNav ? autoNav.lastAction : state.lastAction,
       error: null,
     });
+
+    syncStateToBackend(updatedValues, newTab);
   };
 
   /**
    * Updates multiple field values simultaneously.
    */
   const updateMultipleFields = (updates: Array<{ nodeId: string; value: any }>) => {
+    if (state.journeyStatus === "SUBMITTED") {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+
     const newVals = { ...state.fieldValues };
     const modifiedNodeIds: string[] = [];
     updates.forEach((u) => {
@@ -141,25 +263,51 @@ export function useFormState() {
       if (u.nodeId) modifiedNodeIds.push(u.nodeId);
     });
     const autoNav = getAutoNavState(newVals);
+    const newTab = autoNav ? autoNav.selectedTab : state.selectedTab;
+
+    setLocalHydrated(prev => ({
+      fieldValues: newVals,
+      selectedTab: newTab,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
 
     setState({
       ...state,
       fieldValues: newVals,
       selectedNode: modifiedNodeIds.length > 0 ? modifiedNodeIds : state.selectedNode,
-      selectedTab: autoNav ? autoNav.selectedTab : state.selectedTab,
+      selectedTab: newTab,
       lastAction: autoNav ? autoNav.lastAction : state.lastAction,
       error: null,
     });
+
+    syncStateToBackend(newVals, newTab);
   };
 
   /**
    * Switches the active tab in shared state.
    */
   const setSelectedTab = (tabId: string) => {
+    setLocalHydrated(prev => ({
+      fieldValues: prev?.fieldValues || state.fieldValues,
+      selectedTab: tabId,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
     setState({
       ...state,
       selectedTab: tabId,
     });
+    syncStateToBackend(state.fieldValues, tabId);
+  };
+
+  /** Marks journeyStatus as SUBMITTED in the shared coAgent state so the backend guards new threads. */
+  const setJourneyStatus = (status: string) => {
+    setLocalHydrated(prev => ({
+      fieldValues: prev?.fieldValues || state.fieldValues,
+      selectedTab: prev?.selectedTab || state.selectedTab,
+      journeyStatus: status,
+    }));
+    setState({ ...state, journeyStatus: status });
+    syncStateToBackend(state.fieldValues, state.selectedTab, status);
   };
 
   /**
@@ -176,7 +324,19 @@ export function useFormState() {
    * Resets form values to default state.
    */
   const resetForm = () => {
+    if (state.journeyStatus === "SUBMITTED") {
+      window.dispatchEvent(new CustomEvent("show-already-submitted"));
+      return;
+    }
+    setLocalHydrated({
+      fieldValues: defaultFormState.fieldValues,
+      selectedTab: defaultFormState.selectedTab,
+      journeyStatus: "IN_PROGRESS",
+    });
     setState(defaultFormState);
+    if (threadId) {
+      syncStateToBackend(defaultFormState.fieldValues, defaultFormState.selectedTab, "IN_PROGRESS");
+    }
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -191,6 +351,9 @@ export function useFormState() {
       { name: "value", type: "string", description: "New value to set" },
     ],
     handler: async ({ node_id, value }) => {
+      if (state.journeyStatus === "SUBMITTED") {
+        return "Application is already submitted and locked. Field updates are not permitted.";
+      }
       updateFieldValue(node_id, value);
       return `Updated ${node_id} to ${value}`;
     },
@@ -207,6 +370,9 @@ export function useFormState() {
       },
     ],
     handler: async ({ updates }) => {
+      if (state.journeyStatus === "SUBMITTED") {
+        return "Application is already submitted and locked. Field updates are not permitted.";
+      }
       if (Array.isArray(updates)) {
         updateMultipleFields(updates as any);
         return `Updated ${updates.length} fields successfully.`;
@@ -222,6 +388,9 @@ export function useFormState() {
       { name: "node_id", type: "string", description: "Target field node_id to clear" },
     ],
     handler: async ({ node_id }) => {
+      if (state.journeyStatus === "SUBMITTED") {
+        return "Application is already submitted and locked. Field updates are not permitted.";
+      }
       updateFieldValue(node_id, "");
       return `Cleared field ${node_id}`;
     },
@@ -246,6 +415,7 @@ export function useFormState() {
     updateMultipleFields,
     setSelectedTab,
     setSelectedNode,
+    setJourneyStatus,
     resetForm,
     run,
     stop,
