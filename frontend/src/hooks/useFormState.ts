@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useCoAgent, useCopilotAction } from "@copilotkit/react-core";
 import { FormNode, FormAgentState } from "../types/form";
 import { defaultFormState } from "../state/defaultFormTree";
@@ -71,19 +71,43 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
  * via CopilotKit bidirectional shared state.
  */
 export function useFormState(threadId?: string) {
+  const [localHydrated, setLocalHydrated] = useState<{
+    fieldValues: Record<string, any>;
+    selectedTab?: string;
+    journeyStatus?: string;
+  } | null>(null);
+
   const { state: rawState, setState, run, stop, running } = useCoAgent<FormAgentState>({
     name: "form_agent",
     initialState: defaultFormState,
   });
 
+  // Calculate merged field values:
+  // Base: defaultFormState.fieldValues (empty defaults)
+  // Layer 2: localHydrated.fieldValues (loaded from PostgreSQL)
+  // Layer 3: rawState.fieldValues (live updates from CoAgent/LangGraph)
+  const mergedFieldValues: Record<string, any> = {
+    ...defaultFormState.fieldValues,
+    ...(localHydrated?.fieldValues || {}),
+  };
+
+  if (rawState?.fieldValues) {
+    for (const [k, v] of Object.entries(rawState.fieldValues)) {
+      if (v !== undefined && v !== null && v !== "") {
+        mergedFieldValues[k] = v;
+      }
+    }
+  }
+
   // Merge raw state with defaults to prevent null/undefined during hydration
   const state: FormAgentState = {
     formTree: rawState?.formTree || defaultFormState.formTree,
-    fieldValues: { ...defaultFormState.fieldValues, ...(rawState?.fieldValues || {}) },
-    selectedTab: rawState?.selectedTab || defaultFormState.selectedTab,
+    fieldValues: mergedFieldValues,
+    selectedTab: rawState?.selectedTab || localHydrated?.selectedTab || defaultFormState.selectedTab,
     selectedNode: rawState?.selectedNode ?? defaultFormState.selectedNode,
     conversationHistory: rawState?.conversationHistory || defaultFormState.conversationHistory,
     lastAction: rawState?.lastAction ?? defaultFormState.lastAction,
+    journeyStatus: rawState?.journeyStatus || localHydrated?.journeyStatus || defaultFormState.journeyStatus,
     isProcessing: rawState?.isProcessing ?? running,
     error: rawState?.error ?? null,
   };
@@ -112,6 +136,12 @@ export function useFormState(threadId?: string) {
           }
         }
 
+        setLocalHydrated({
+          fieldValues: mergedValues,
+          selectedTab: loadedTab,
+          journeyStatus: loadedJourney,
+        });
+
         setState(prev => ({
           ...prev,
           fieldValues: mergedValues,
@@ -130,6 +160,7 @@ export function useFormState(threadId?: string) {
 
   // Automatically load form state whenever threadId changes
   useEffect(() => {
+    setLocalHydrated(null);
     if (threadId) {
       loadFormState(threadId);
     }
@@ -198,6 +229,12 @@ export function useFormState(threadId?: string) {
     const autoNav = getAutoNavState(updatedValues, nodeId);
     const newTab = autoNav ? autoNav.selectedTab : state.selectedTab;
 
+    setLocalHydrated(prev => ({
+      fieldValues: updatedValues,
+      selectedTab: newTab,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
+
     setState({
       ...state,
       fieldValues: updatedValues,
@@ -228,6 +265,12 @@ export function useFormState(threadId?: string) {
     const autoNav = getAutoNavState(newVals);
     const newTab = autoNav ? autoNav.selectedTab : state.selectedTab;
 
+    setLocalHydrated(prev => ({
+      fieldValues: newVals,
+      selectedTab: newTab,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
+
     setState({
       ...state,
       fieldValues: newVals,
@@ -244,6 +287,11 @@ export function useFormState(threadId?: string) {
    * Switches the active tab in shared state.
    */
   const setSelectedTab = (tabId: string) => {
+    setLocalHydrated(prev => ({
+      fieldValues: prev?.fieldValues || state.fieldValues,
+      selectedTab: tabId,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
     setState({
       ...state,
       selectedTab: tabId,
@@ -253,6 +301,11 @@ export function useFormState(threadId?: string) {
 
   /** Marks journeyStatus as SUBMITTED in the shared coAgent state so the backend guards new threads. */
   const setJourneyStatus = (status: string) => {
+    setLocalHydrated(prev => ({
+      fieldValues: prev?.fieldValues || state.fieldValues,
+      selectedTab: prev?.selectedTab || state.selectedTab,
+      journeyStatus: status,
+    }));
     setState({ ...state, journeyStatus: status });
     syncStateToBackend(state.fieldValues, state.selectedTab, status);
   };
@@ -275,6 +328,11 @@ export function useFormState(threadId?: string) {
       window.dispatchEvent(new CustomEvent("show-already-submitted"));
       return;
     }
+    setLocalHydrated({
+      fieldValues: defaultFormState.fieldValues,
+      selectedTab: defaultFormState.selectedTab,
+      journeyStatus: "IN_PROGRESS",
+    });
     setState(defaultFormState);
     if (threadId) {
       syncStateToBackend(defaultFormState.fieldValues, defaultFormState.selectedTab, "IN_PROGRESS");

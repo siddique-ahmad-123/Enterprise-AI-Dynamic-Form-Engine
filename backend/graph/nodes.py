@@ -279,7 +279,7 @@ async def validate_action_node(
             raw_val = item.get("target_value")
             label = node.get("label", "Field")
 
-            if node.get("readonly", False):
+            if node.get("readonly", False) and node.get("node_id") != "borrowerAge":
                 validation_errors.append(f"⚠️ **{label}** is read-only and cannot be modified.")
             else:
                 casted_val, err = validate_and_cast_value(node, raw_val)
