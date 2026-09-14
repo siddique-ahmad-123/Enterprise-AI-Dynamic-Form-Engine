@@ -823,13 +823,23 @@ def mark_thread_submitted(thread_id: str, submission_ref: str, username: Optiona
                         """,
                         (submission_ref, username),
                     )
+                # Ensure all consents are recorded as True in thread_form_state upon submission
+                cur.execute("SELECT field_values FROM thread_form_state WHERE thread_id = %s;", (thread_id,))
+                fs_row = cur.fetchone()
+                existing_fvals = fs_row.get("field_values") or {} if fs_row else {}
+                existing_fvals["isCheckedTermandCond"] = True
+                existing_fvals["isCheckedLifestyle"] = True
+                existing_fvals["isCheckedPrivacy"] = True
+                existing_fvals["agreeTerms"] = True
+                existing_fvals["agreeLifestyle"] = True
+                existing_fvals["agreePrivacy"] = True
                 cur.execute(
                     """
                     UPDATE thread_form_state
-                    SET journey_status = 'SUBMITTED', updated_at = CURRENT_TIMESTAMP
+                    SET journey_status = 'SUBMITTED', field_values = %s::jsonb, updated_at = CURRENT_TIMESTAMP
                     WHERE thread_id = %s;
                     """,
-                    (thread_id,),
+                    (json.dumps(existing_fvals), thread_id),
                 )
                 return cur.rowcount > 0
     except Exception as e:
@@ -1023,6 +1033,20 @@ def save_thread_form_state(
                 effective_jstat = "SUBMITTED" if is_sub else (journey_status or existing_jstat or "IN_PROGRESS")
                 effective_tab = selected_tab or existing_tab or "tab_consents"
 
+                # If application is submitted, or has already filled data past Step 0, or had consents checked, keep consents True
+                has_past_consents = any(
+                    k not in ("isCheckedTermandCond", "isCheckedLifestyle", "isCheckedPrivacy", "selectedRequiredAmount", "agreeTerms", "agreeLifestyle", "agreePrivacy")
+                    and v not in (None, "", False)
+                    for k, v in merged_fvals.items()
+                )
+                if is_sub or effective_jstat == "SUBMITTED" or has_past_consents or existing_fvals.get("isCheckedTermandCond") is True:
+                    merged_fvals["isCheckedTermandCond"] = True
+                    merged_fvals["isCheckedLifestyle"] = True
+                    merged_fvals["isCheckedPrivacy"] = True
+                    merged_fvals["agreeTerms"] = True
+                    merged_fvals["agreeLifestyle"] = True
+                    merged_fvals["agreePrivacy"] = True
+
                 fvals_json = json.dumps(merged_fvals)
                 cur.execute(
                     """
@@ -1105,6 +1129,20 @@ def get_thread_form_state(thread_id: str) -> Dict[str, Any]:
                     stab = row.get("selected_tab") or stab
                     jstat = "SUBMITTED" if is_sub else (row.get("journey_status") or jstat)
                     uname = row.get("username") or uname
+
+                # If thread is submitted or user has entered data past consents, ensure all consents are True
+                has_past_consents = any(
+                    k not in ("isCheckedTermandCond", "isCheckedLifestyle", "isCheckedPrivacy", "selectedRequiredAmount", "agreeTerms", "agreeLifestyle", "agreePrivacy")
+                    and v not in (None, "", False)
+                    for k, v in fvals.items()
+                )
+                if is_sub or jstat == "SUBMITTED" or has_past_consents:
+                    fvals["isCheckedTermandCond"] = True
+                    fvals["isCheckedLifestyle"] = True
+                    fvals["isCheckedPrivacy"] = True
+                    fvals["agreeTerms"] = True
+                    fvals["agreeLifestyle"] = True
+                    fvals["agreePrivacy"] = True
 
                 # Self-heal thread_form_state table in PostgreSQL with complete merged values
                 fvals_json = json.dumps(fvals)

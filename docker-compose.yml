@@ -20,6 +20,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: enterprise-ai-backend
     ports:
       - "8000:8000"
     volumes:
@@ -47,6 +48,7 @@ services:
     build:
       context: ./copilot-runtime
       dockerfile: Dockerfile
+    container_name: enterprise-ai-copilot-runtime
     ports:
       - "4000:4000"
     environment:
@@ -60,16 +62,20 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: enterprise-ai-frontend
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_COPILOTKIT_RUNTIME_URL=http://localhost:4000/copilotkit
-      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BASE_PATH=/enterprise-ai/
+      - VITE_BACKEND_URL=/enterprise-ai
+      - VITE_COPILOTKIT_RUNTIME_URL=/enterprise-ai/copilotkit
       - BACKEND_PROXY=http://backend:8000
+      - COPILOT_RUNTIME_PROXY=http://copilot-runtime:4000
     depends_on:
+      - backend
       - copilot-runtime
     restart: always
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useCoAgent, useCopilotAction } from "@copilotkit/react-core";
 import { FormNode, FormAgentState } from "../types/form";
-import { defaultFormState } from "../state/defaultFormTree";
+import { defaultFormState, areAllConsentsChecked, CONSENT_FIELD_IDS } from "../state/defaultFormTree";
 
 /**
  * Checks whether a given tab's mandatory (required) fields are all filled
@@ -64,13 +64,13 @@ export function isTabMandatoryComplete(tabNode: FormNode, fieldValues: Record<st
   return checkNode(tabNode);
 }
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 /**
  * Custom hook connecting the React UI to the LangGraph form_agent
  * via CopilotKit bidirectional shared state.
  */
-export function useFormState(threadId?: string) {
+export function useFormState(threadId?: string, isSubmittedProp: boolean = false) {
   const [localHydrated, setLocalHydrated] = useState<{
     fieldValues: Record<string, any>;
     selectedTab?: string;
@@ -81,6 +81,12 @@ export function useFormState(threadId?: string) {
     name: "form_agent",
     initialState: defaultFormState,
   });
+
+  const isFormSubmitted = Boolean(
+    isSubmittedProp ||
+    rawState?.journeyStatus === "SUBMITTED" ||
+    localHydrated?.journeyStatus === "SUBMITTED"
+  );
 
   // Calculate merged field values:
   // Base: defaultFormState.fieldValues (empty defaults)
@@ -94,8 +100,23 @@ export function useFormState(threadId?: string) {
   if (rawState?.fieldValues) {
     for (const [k, v] of Object.entries(rawState.fieldValues)) {
       if (v !== undefined && v !== null && v !== "") {
+        // If localHydrated loaded true for a consent checkbox, NEVER let rawState's default false clobber it
+        if (CONSENT_FIELD_IDS.includes(k) && localHydrated?.fieldValues?.[k] === true && v === false) {
+          continue;
+        }
         mergedFieldValues[k] = v;
       }
+    }
+  }
+
+  // If application is submitted, or if user has entered data past Step 0, or if consents were checked in database:
+  const hasFilledDataPastConsents = Object.entries(mergedFieldValues).some(
+    ([k, v]) => !CONSENT_FIELD_IDS.includes(k) && k !== "selectedRequiredAmount" && v !== undefined && v !== null && v !== "" && v !== false
+  );
+
+  if (isFormSubmitted || hasFilledDataPastConsents || areAllConsentsChecked(localHydrated?.fieldValues)) {
+    for (const cid of CONSENT_FIELD_IDS) {
+      mergedFieldValues[cid] = true;
     }
   }
 
@@ -107,7 +128,7 @@ export function useFormState(threadId?: string) {
     selectedNode: rawState?.selectedNode ?? defaultFormState.selectedNode,
     conversationHistory: rawState?.conversationHistory || defaultFormState.conversationHistory,
     lastAction: rawState?.lastAction ?? defaultFormState.lastAction,
-    journeyStatus: rawState?.journeyStatus || localHydrated?.journeyStatus || defaultFormState.journeyStatus,
+    journeyStatus: isFormSubmitted ? "SUBMITTED" : (rawState?.journeyStatus || localHydrated?.journeyStatus || defaultFormState.journeyStatus),
     isProcessing: rawState?.isProcessing ?? running,
     error: rawState?.error ?? null,
   };
@@ -123,7 +144,8 @@ export function useFormState(threadId?: string) {
         const data = await res.json();
         const loadedValues = data.field_values || {};
         const loadedTab = data.selected_tab || defaultFormState.selectedTab;
-        const loadedJourney = data.journey_status || defaultFormState.journeyStatus;
+        const loadedJourney = data.journey_status || (data.is_submitted ? "SUBMITTED" : defaultFormState.journeyStatus);
+        const isSub = Boolean(data.is_submitted || loadedJourney === "SUBMITTED" || isSubmittedProp);
 
         const mergedValues = {
           ...defaultFormState.fieldValues,
@@ -133,6 +155,16 @@ export function useFormState(threadId?: string) {
         for (const [k, v] of Object.entries(loadedValues)) {
           if (v !== undefined && v !== null && v !== "") {
             mergedValues[k] = v;
+          }
+        }
+
+        const hasNonConsentFilled = Object.entries(mergedValues).some(
+          ([k, v]) => !CONSENT_FIELD_IDS.includes(k) && k !== "selectedRequiredAmount" && v !== undefined && v !== null && v !== "" && v !== false
+        );
+
+        if (isSub || hasNonConsentFilled || areAllConsentsChecked(loadedValues)) {
+          for (const cid of CONSENT_FIELD_IDS) {
+            mergedValues[cid] = true;
           }
         }
 
@@ -164,7 +196,7 @@ export function useFormState(threadId?: string) {
     if (threadId) {
       loadFormState(threadId);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
   /**
@@ -172,7 +204,7 @@ export function useFormState(threadId?: string) {
    */
   const syncStateToBackend = (values: Record<string, any>, tab: string, journey?: string) => {
     if (!threadId) return;
-    if (state.journeyStatus === "SUBMITTED" || journey === "SUBMITTED") {
+    if (state.journeyStatus === "SUBMITTED" || journey === "SUBMITTED" || isSubmittedProp) {
       return; // Do not overwrite submitted state with unhydrated client state
     }
     const user = localStorage.getItem("auth_username");
@@ -185,7 +217,7 @@ export function useFormState(threadId?: string) {
         journey_status: journey || state.journeyStatus || "IN_PROGRESS",
         username: user,
       }),
-    }).catch(() => {});
+    }).catch(() => { });
   };
 
   /**
@@ -222,6 +254,14 @@ export function useFormState(threadId?: string) {
       return;
     }
 
+    // Consent Check: Block updating any field outside Step 0 until all 3 consents are declared
+    if (!CONSENT_FIELD_IDS.includes(nodeId) && nodeId !== "selectedRequiredAmount") {
+      if (!areAllConsentsChecked(state.fieldValues)) {
+        window.dispatchEvent(new CustomEvent("show-consent-required"));
+        return;
+      }
+    }
+
     const updatedValues = {
       ...state.fieldValues,
       [nodeId]: value,
@@ -256,6 +296,15 @@ export function useFormState(threadId?: string) {
       return;
     }
 
+    // Consent Check: Block updating non-consent fields until all 3 consents are declared
+    const hasNonConsentUpdates = updates.some(
+      u => !CONSENT_FIELD_IDS.includes(u.nodeId) && u.nodeId !== "selectedRequiredAmount"
+    );
+    if (hasNonConsentUpdates && !areAllConsentsChecked(state.fieldValues)) {
+      window.dispatchEvent(new CustomEvent("show-consent-required"));
+      return;
+    }
+
     const newVals = { ...state.fieldValues };
     const modifiedNodeIds: string[] = [];
     updates.forEach((u) => {
@@ -284,9 +333,43 @@ export function useFormState(threadId?: string) {
   };
 
   /**
+   * Automatically accepts all 3 consents in Step 0.
+   */
+  const acceptAllConsents = () => {
+    const updatedValues = {
+      ...state.fieldValues,
+      isCheckedTermandCond: true,
+      isCheckedLifestyle: true,
+      isCheckedPrivacy: true,
+    };
+    setLocalHydrated(prev => ({
+      fieldValues: updatedValues,
+      selectedTab: prev?.selectedTab || state.selectedTab,
+      journeyStatus: prev?.journeyStatus || state.journeyStatus || "IN_PROGRESS",
+    }));
+    setState({
+      ...state,
+      fieldValues: updatedValues,
+      selectedNode: "isCheckedPrivacy",
+      lastAction: {
+        action_type: "UPDATE_FIELD",
+        message: "✅ All consents & declarations accepted successfully.",
+        timestamp: new Date().toISOString(),
+      },
+      error: null,
+    });
+    syncStateToBackend(updatedValues, state.selectedTab);
+  };
+
+  /**
    * Switches the active tab in shared state.
    */
   const setSelectedTab = (tabId: string) => {
+    if (tabId !== "tab_consents" && !areAllConsentsChecked(state.fieldValues)) {
+      window.dispatchEvent(new CustomEvent("show-consent-required"));
+      return;
+    }
+
     setLocalHydrated(prev => ({
       fieldValues: prev?.fieldValues || state.fieldValues,
       selectedTab: tabId,
@@ -354,6 +437,10 @@ export function useFormState(threadId?: string) {
       if (state.journeyStatus === "SUBMITTED") {
         return "Application is already submitted and locked. Field updates are not permitted.";
       }
+      if (!CONSENT_FIELD_IDS.includes(node_id) && node_id !== "selectedRequiredAmount" && !areAllConsentsChecked(state.fieldValues)) {
+        window.dispatchEvent(new CustomEvent("show-consent-required"));
+        return "Please do consent and declaration first then you can proceed further.";
+      }
       updateFieldValue(node_id, value);
       return `Updated ${node_id} to ${value}`;
     },
@@ -374,10 +461,27 @@ export function useFormState(threadId?: string) {
         return "Application is already submitted and locked. Field updates are not permitted.";
       }
       if (Array.isArray(updates)) {
+        const hasNonConsent = updates.some(
+          (u: any) => !CONSENT_FIELD_IDS.includes(u.node_id || u.nodeId) && (u.node_id || u.nodeId) !== "selectedRequiredAmount"
+        );
+        if (hasNonConsent && !areAllConsentsChecked(state.fieldValues)) {
+          window.dispatchEvent(new CustomEvent("show-consent-required"));
+          return "Please do consent and declaration first then you can proceed further.";
+        }
         updateMultipleFields(updates as any);
         return `Updated ${updates.length} fields successfully.`;
       }
       return "No updates provided.";
+    },
+  });
+
+  useCopilotAction({
+    name: "accept_all_consents",
+    description: "Accepts all 3 consent and declaration checkboxes in Step 0 (Terms & Conditions, Lifestyle, Privacy)",
+    parameters: [],
+    handler: async () => {
+      acceptAllConsents();
+      return "All consents and declarations have been accepted. You can now proceed to fill your application.";
     },
   });
 
@@ -403,6 +507,10 @@ export function useFormState(threadId?: string) {
       { name: "tab_id", type: "string", description: "Tab node_id" },
     ],
     handler: async ({ tab_id }) => {
+      if (tab_id !== "tab_consents" && !areAllConsentsChecked(state.fieldValues)) {
+        window.dispatchEvent(new CustomEvent("show-consent-required"));
+        return "Please do consent and declaration first then you can proceed further.";
+      }
       setSelectedTab(tab_id);
       return `Switched to tab ${tab_id}`;
     },
@@ -413,6 +521,8 @@ export function useFormState(threadId?: string) {
     setState,
     updateFieldValue,
     updateMultipleFields,
+    acceptAllConsents,
+    areAllConsentsChecked: () => areAllConsentsChecked(state.fieldValues),
     setSelectedTab,
     setSelectedNode,
     setJourneyStatus,

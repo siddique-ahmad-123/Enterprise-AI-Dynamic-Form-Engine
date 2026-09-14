@@ -27,7 +27,7 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
   onClose,
   currentThreadId,
   onSelectThread,
-  backendUrl = "http://localhost:8000",
+  backendUrl = "",
   authUser,
   isSubmitted = false,
 }) => {

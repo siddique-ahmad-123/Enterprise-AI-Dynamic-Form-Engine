@@ -56,7 +56,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onLogout,
   onStartNewApplication,
   onSelectApplication,
-  backendUrl = "http://localhost:8000",
+  backendUrl = "",
 }) => {
   const [applications, setApplications] = useState<ApplicationItem[]>([]);
   const [stats, setStats] = useState<DashboardStats>({ total: 0, submitted: 0, in_progress: 0 });

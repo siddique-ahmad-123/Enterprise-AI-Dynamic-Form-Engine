@@ -10,6 +10,7 @@ import {
 import { FormNode, FormAction } from "../../types/form";
 import { TabRenderer } from "./TabRenderer";
 import { isTabMandatoryComplete } from "../../hooks/useFormState";
+import { areAllConsentsChecked } from "../../state/defaultFormTree";
 
 interface FormRendererProps {
   formTree: FormNode;
@@ -165,7 +166,13 @@ export const FormRenderer: React.FC<FormRendererProps> = ({
               return (
                 <button
                   key={tab.node_id}
-                  onClick={() => onTabChange(tab.node_id)}
+                  onClick={() => {
+                    if (tab.node_id !== "tab_consents" && !areAllConsentsChecked(fieldValues)) {
+                      window.dispatchEvent(new CustomEvent("show-consent-required"));
+                      return;
+                    }
+                    onTabChange(tab.node_id);
+                  }}
                   className={`flex items-center gap-2.5 pb-2 pt-1 px-1 transition-all whitespace-nowrap text-xs font-semibold relative ${
                     isActive
                       ? "text-[#1e295d] font-bold border-b-2 border-[#1e295d]"
