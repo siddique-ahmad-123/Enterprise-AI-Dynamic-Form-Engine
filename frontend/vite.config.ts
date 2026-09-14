@@ -18,12 +18,35 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // BACKEND_PROXY env var allows Docker Compose to override (e.g. http://backend:8000)
+    allowedHosts: true,
+    // BACKEND_PROXY & COPILOT_RUNTIME_PROXY allow Docker Compose / server config override
     proxy: {
-      "/auth": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
-      "/chat": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
-      "/health": { target: process.env.BACKEND_PROXY || "http://localhost:8000", changeOrigin: true },
+      "^(/enterprise-ai)?/auth": {
+        target: process.env.BACKEND_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/enterprise-ai/, ""),
+      },
+      "^(/enterprise-ai)?/chat": {
+        target: process.env.BACKEND_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/enterprise-ai/, ""),
+      },
+      "^(/enterprise-ai)?/applications": {
+        target: process.env.BACKEND_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/enterprise-ai/, ""),
+      },
+      "^(/enterprise-ai)?/health": {
+        target: process.env.BACKEND_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/enterprise-ai/, ""),
+      },
+      "^(/enterprise-ai)?/copilotkit": {
+        target: process.env.COPILOT_RUNTIME_PROXY || "http://localhost:4000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/enterprise-ai/, ""),
+      },
     },
   },
-  base:"/copilotkit_frontend/",
+  base: process.env.VITE_BASE_PATH || "/",
 });

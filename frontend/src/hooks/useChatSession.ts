@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { TextMessage, Role } from "@copilotkit/runtime-client-gql";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 const getUserStorageKey = (user?: string | null) => `copilot_chat_thread_id_${(user || "anonymous").toLowerCase()}`;
 

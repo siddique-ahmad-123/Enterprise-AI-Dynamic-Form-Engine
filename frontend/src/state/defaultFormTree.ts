@@ -79,7 +79,7 @@ export const defaultFormTree: FormNode = {
               max: 10000000,
               step: 1000,
               unit: "AED",
-              value: 500000,
+              value: null,
             },
           ],
         },
@@ -105,7 +105,7 @@ export const defaultFormTree: FormNode = {
               node_type: "segment",
               label: "Nationality Status",
               options: ["Emirati", "Expat"],
-              value: "Emirati",
+              value: "",
             },
             {
               node_id: "upload_emirates_id",
@@ -340,7 +340,7 @@ export const defaultFormTree: FormNode = {
               field_type: "select",
               readonly: true,
               options: ["Initiated", "Pending", "Verified"],
-              value: "Verified",
+              value: "",
             },
           ],
         },
@@ -414,7 +414,7 @@ export const defaultFormTree: FormNode = {
               label: "Gender",
               field_type: "select",
               options: ["Male", "Female", "Others"],
-              value: "Female",
+              value: "",
             },
             {
               node_id: "coBorrowerNationality",
@@ -422,7 +422,7 @@ export const defaultFormTree: FormNode = {
               label: "Nationality",
               field_type: "select",
               options: ["UAE", "Indian", "British"],
-              value: "UAE",
+              value: "",
             },
           ],
         },
@@ -447,7 +447,7 @@ export const defaultFormTree: FormNode = {
               node_type: "segment",
               label: "Select Income Type",
               options: ["Salaried", "Self Employed"],
-              value: "Salaried",
+              value: "",
             },
           ],
         },
@@ -465,7 +465,7 @@ export const defaultFormTree: FormNode = {
               label: "Select Method to Fetch Employment Details",
               field_type: "select",
               options: ["AECB", "Salary Certificate"],
-              value: "Salary Certificate",
+              value: "",
             },
             {
               node_id: "upload_salary_certificate",
@@ -563,7 +563,7 @@ export const defaultFormTree: FormNode = {
               label: "Loan Type",
               field_type: "select",
               options: ["Home Purchase Loan", "Refinance", "Equity Release"],
-              value: "Home Purchase Loan",
+              value: "",
             },
             {
               node_id: "purpose",
@@ -571,7 +571,7 @@ export const defaultFormTree: FormNode = {
               label: "Purpose",
               field_type: "select",
               options: ["Primary Residence", "Investment Property", "Holiday Home"],
-              value: "Primary Residence",
+              value: "",
             },
             {
               node_id: "roiType",
@@ -579,7 +579,7 @@ export const defaultFormTree: FormNode = {
               label: "ROI Type",
               field_type: "select",
               options: ["Fixed Rate", "Variable Rate", "Hybrid Rate"],
-              value: "Fixed Rate",
+              value: "",
             },
             {
               node_id: "loanAmount",
@@ -589,7 +589,7 @@ export const defaultFormTree: FormNode = {
               max: 10000000,
               step: 10000,
               unit: "AED",
-              value: 2500000,
+              value: null,
             },
             {
               node_id: "tenure",
@@ -599,7 +599,7 @@ export const defaultFormTree: FormNode = {
               max: 300,
               step: 12,
               unit: "Mon",
-              value: 240,
+              value: null,
             },
             {
               node_id: "rateOfInterest",
@@ -609,7 +609,7 @@ export const defaultFormTree: FormNode = {
               max: 15,
               step: 0.1,
               unit: "%",
-              value: 4.5,
+              value: null,
             },
             {
               node_id: "installment",
@@ -618,7 +618,7 @@ export const defaultFormTree: FormNode = {
               field_type: "number",
               readonly: true,
               description: "Auto-calculated Monthly EMI (AED)",
-              value: 15816,
+              value: null,
             },
           ],
         },
@@ -632,7 +632,7 @@ export const defaultFormTree: FormNode = {
               node_type: "segment",
               label: "Whether Property Identified?",
               options: ["Yes", "No"],
-              value: "Yes",
+              value: "",
             },
             {
               node_id: "propertyAddressLine1",
@@ -641,7 +641,7 @@ export const defaultFormTree: FormNode = {
               field_type: "text",
               condition: "isPropertyIdentified === 'Yes'",
               placeholder: "Building / Plot No",
-              value: "Marina Gate Tower 2, Apt 1804",
+              value: "",
             },
             {
               node_id: "propertyEmirates",
@@ -658,7 +658,7 @@ export const defaultFormTree: FormNode = {
                 "Sharjah",
                 "Umm Al Quwain",
               ],
-              value: "Dubai",
+              value: "",
             },
             {
               node_id: "transactionAmount",
@@ -666,7 +666,7 @@ export const defaultFormTree: FormNode = {
               label: "Property Valuation / Purchase Price (AED)",
               field_type: "number",
               placeholder: "Enter property price",
-              value: 3200000,
+              value: null,
             },
             {
               node_id: "ownContribution",
@@ -674,7 +674,7 @@ export const defaultFormTree: FormNode = {
               label: "Own Down Payment Contribution (AED)",
               field_type: "number",
               placeholder: "Enter down payment amount",
-              value: 700000,
+              value: null,
             },
           ],
         },
@@ -701,7 +701,7 @@ export const defaultFormTree: FormNode = {
               field_type: "select",
               readonly: true,
               options: ["In Review", "Pre-Approved", "Sanctioned", "Declined"],
-              value: "Pre-Approved",
+              value: "",
             },
             {
               node_id: "underwriter_comments",
@@ -709,7 +709,7 @@ export const defaultFormTree: FormNode = {
               label: "Underwriter Notes",
               field_type: "textarea",
               readonly: true,
-              value: "Applicant meets LTV 80% and DBR 35% threshold limits. Pre-approved subject to property valuation report.",
+              value: "",
             },
             {
               node_id: "documentation_charges",
@@ -717,7 +717,7 @@ export const defaultFormTree: FormNode = {
               label: "Documentation & Admin Fee (AED)",
               field_type: "number",
               readonly: true,
-              value: 2500,
+              value: null,
             },
           ],
         },
@@ -759,4 +759,22 @@ export const initialFormState: FormAgentState = {
 };
 
 export const defaultFormState = initialFormState;
+
+export const CONSENT_FIELD_IDS = [
+  "isCheckedTermandCond",
+  "isCheckedLifestyle",
+  "isCheckedPrivacy",
+];
+
+/**
+ * Checks whether all 3 required consent and declaration checkboxes in Step 0 are ticked.
+ */
+export function areAllConsentsChecked(fieldValues?: Record<string, any> | null): boolean {
+  if (!fieldValues) return false;
+  return Boolean(
+    fieldValues["isCheckedTermandCond"] === true &&
+    fieldValues["isCheckedLifestyle"] === true &&
+    fieldValues["isCheckedPrivacy"] === true
+  );
+}
 

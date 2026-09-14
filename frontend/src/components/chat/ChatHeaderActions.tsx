@@ -10,42 +10,41 @@ interface ChatHeaderActionsProps {
 export const ChatHeaderActions: React.FC<ChatHeaderActionsProps> = ({
   onOpenHistory,
 }) => {
-  const [headerContainer, setHeaderContainer] = useState<HTMLElement | null>(null);
+  const [controlsContainer, setControlsContainer] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const findHeader = () => {
-      const header =
-        document.querySelector<HTMLElement>(".copilotKitSidebar [class*='Header']") ||
-        document.querySelector<HTMLElement>(".copilotKitHeader") ||
-        document.querySelector<HTMLElement>(".copilotKitChat [class*='header']");
+    const findControls = () => {
+      // Look for the controls container inside CopilotKit chatbot header
+      const controls =
+        document.querySelector<HTMLElement>(".copilotKitHeader .copilotKitHeaderControls") ||
+        document.querySelector<HTMLElement>(".copilotKitHeaderControls") ||
+        document.querySelector<HTMLElement>(".copilotKitHeader");
 
-      if (header) {
-        setHeaderContainer(header);
+      if (controls) {
+        setControlsContainer(controls);
       }
     };
 
-    findHeader();
-    const observer = new MutationObserver(() => findHeader());
+    findControls();
+    const observer = new MutationObserver(() => findControls());
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
 
   const content = (
-    <div className="inline-flex items-center gap-1.5 ml-auto mr-2">
-      <button
-        type="button"
-        onClick={onOpenHistory}
-        title="View saved application conversations"
-        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-white bg-white/20 hover:bg-white/30 rounded-lg backdrop-blur-xs transition-all cursor-pointer shadow-2xs active:scale-95"
-      >
-        <History className="w-3.5 h-3.5" />
-        History
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onOpenHistory}
+      title="View saved application conversations"
+      className="chat-header-history-btn inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-white bg-white/15 hover:bg-white/25 rounded-lg border border-white/20 backdrop-blur-xs transition-all duration-150 cursor-pointer shadow-xs active:scale-95 shrink-0"
+    >
+      <History className="w-3.5 h-3.5" />
+      <span>History</span>
+    </button>
   );
 
-  if (headerContainer) {
-    return ReactDOM.createPortal(content, headerContainer);
+  if (controlsContainer) {
+    return ReactDOM.createPortal(content, controlsContainer);
   }
 
   return null;

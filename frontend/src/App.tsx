@@ -8,11 +8,12 @@ import { FormRenderer } from "./components/form/FormRenderer";
 import { ReviewModal } from "./components/form/ReviewModal";
 import { QuickActions } from "./components/ui/QuickActions";
 import { CustomRenderMessage } from "./components/chat/CustomRenderMessage";
-import { VoiceInputControl } from "./components/chat/VoiceInputControl";
+import { ChatInputBar } from "./components/chat/ChatInputBar";
 import { ChatHeaderActions } from "./components/chat/ChatHeaderActions";
 import { ChatHistoryModal } from "./components/chat/ChatHistoryModal";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { AlreadySubmittedModal } from "./components/auth/AlreadySubmittedModal";
+import { ConsentRequiredModal } from "./components/form/ConsentRequiredModal";
 import { Dashboard } from "./components/Dashboard";
 import { useFormState } from "./hooks/useFormState";
 import { useChatSession } from "./hooks/useChatSession";
@@ -39,7 +40,7 @@ Always perform two-way synchronization and keep responses helpful, clear, and st
 `;
 
 const RUNTIME_URL =
-  import.meta.env.VITE_COPILOTKIT_RUNTIME_URL || "http://localhost:4000/copilotkit";
+  import.meta.env.VITE_COPILOTKIT_RUNTIME_URL || "/copilotkit";
 
 interface MainContentProps {
   onOpenHistory: () => void;
@@ -65,14 +66,17 @@ function MainContent({
   const {
     state,
     updateFieldValue,
+    updateMultipleFields,
+    acceptAllConsents,
     setSelectedTab,
     setJourneyStatus,
     resetForm,
     running,
-  } = useFormState(currentThreadId);
+  } = useFormState(currentThreadId, Boolean(isSubmitted));
 
   const { appendMessage } = useCopilotChat();
   const [isReviewOpen, setIsReviewOpen] = React.useState<boolean>(false);
+  const [showConsentModal, setShowConsentModal] = React.useState<boolean>(false);
 
   const effectiveSubmitted = Boolean(isSubmitted || state.journeyStatus === "SUBMITTED");
 
@@ -86,9 +90,20 @@ function MainContent({
 
   React.useEffect(() => {
     const handleOpenReview = () => setIsReviewOpen(true);
+    const handleShowConsent = () => setShowConsentModal(true);
     window.addEventListener("open-review-modal", handleOpenReview);
-    return () => window.removeEventListener("open-review-modal", handleOpenReview);
+    window.addEventListener("show-consent-required", handleShowConsent);
+    return () => {
+      window.removeEventListener("open-review-modal", handleOpenReview);
+      window.removeEventListener("show-consent-required", handleShowConsent);
+    };
   }, []);
+
+  React.useEffect(() => {
+    if (state.lastAction?.action_type === "CONSENT_REQUIRED") {
+      setShowConsentModal(true);
+    }
+  }, [state.lastAction]);
 
   const handleSelectPrompt = (promptText: string) => {
     try {
@@ -240,6 +255,25 @@ function MainContent({
           isSubmitted={effectiveSubmitted}
         />
 
+        {/* Step 0 Consent & Declaration Required Modal */}
+        <ConsentRequiredModal
+          isOpen={showConsentModal}
+          onClose={() => setShowConsentModal(false)}
+          onAcceptAllConsents={() => {
+            acceptAllConsents();
+            setShowConsentModal(false);
+          }}
+          onGoToConsents={() => {
+            setSelectedTab("tab_consents");
+            setShowConsentModal(false);
+          }}
+          consentsStatus={{
+            termAndCond: Boolean(state.fieldValues["isCheckedTermandCond"]),
+            lifestyle: Boolean(state.fieldValues["isCheckedLifestyle"]),
+            privacy: Boolean(state.fieldValues["isCheckedPrivacy"]),
+          }}
+        />
+
         {/* Quick Test Action Prompts */}
         <div className="mt-8 max-w-7xl mx-auto">
           <QuickActions onSelectPrompt={handleSelectPrompt} />
@@ -308,8 +342,8 @@ function SidebarContainer({
       <CopilotSidebar
         instructions={COPILOT_INSTRUCTIONS}
         labels={{
-          title: "🤖 Form AI Assistant",
-          placeholder: isSubmitted ? "Application submitted (Locked under review)" : "Type or speak: 'Set Customer Name to John'...",
+          title: "🤖 AI Form Assistant",
+          placeholder: isSubmitted ? "Application submitted (Locked under review)" : "Ask anything",
           stopGenerating: "Stop",
           regenerateResponse: "Regenerate",
         }}
@@ -339,8 +373,8 @@ function SidebarContainer({
         isSubmitted={isSubmitted}
       />
 
-      {/* Voice Dictation Control Portaled inside Chatbot Input */}
-      <VoiceInputControl />
+      {/* Modern Chat Input Bar (Plus, Think, Mic, Blue Waveform) Portaled inside Chatbot Input */}
+      <ChatInputBar isSubmitted={isSubmitted} />
 
       {/* PostgreSQL Chat History & Sessions Management Modal */}
       <ChatHistoryModal
@@ -480,7 +514,7 @@ export default function App() {
         onLogout={handleLogout}
         onStartNewApplication={handleStartNewApplication}
         onSelectApplication={handleSelectApplication}
-        backendUrl={BACKEND_URL || "http://localhost:8000"}
+        backendUrl={BACKEND_URL || ""}
       />
     );
   }

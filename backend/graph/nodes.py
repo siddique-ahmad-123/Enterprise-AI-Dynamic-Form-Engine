@@ -271,31 +271,46 @@ async def validate_action_node(
     validated_updates = []
     validation_errors = []
 
+    field_values = state.get("fieldValues") or {}
+    are_consents_done = bool(
+        field_values.get("isCheckedTermandCond") and
+        field_values.get("isCheckedLifestyle") and
+        field_values.get("isCheckedPrivacy")
+    )
+    CONSENT_FIELD_IDS = {"isCheckedTermandCond", "isCheckedLifestyle", "isCheckedPrivacy", "selectedRequiredAmount"}
+
     if is_already_submitted and intent_type in (IntentType.UPDATE_FIELD, IntentType.CLEAR_FIELD, IntentType.CONFIRM_CONSENT):
         validation_errors.append("🔒 **Application Already Submitted**: This application is under Underwriting Sanction Review and cannot be modified.")
     elif intent_type == IntentType.UPDATE_FIELD and field_matches:
-        for item in field_matches:
-            node = item.get("node") or {}
-            raw_val = item.get("target_value")
-            label = node.get("label", "Field")
+        non_consent_matches = [
+            item for item in field_matches
+            if (item.get("node") or {}).get("node_id") not in CONSENT_FIELD_IDS
+        ]
+        if non_consent_matches and not are_consents_done:
+            validation_errors.append("⚠️ **Consent & Declaration Required**: Please do consent and declaration first then you can proceed further.")
+        else:
+            for item in field_matches:
+                node = item.get("node") or {}
+                raw_val = item.get("target_value")
+                label = node.get("label", "Field")
 
-            if node.get("readonly", False) and node.get("node_id") != "borrowerAge":
-                validation_errors.append(f"⚠️ **{label}** is read-only and cannot be modified.")
-            else:
-                casted_val, err = validate_and_cast_value(node, raw_val)
-                if err:
-                    validation_errors.append(err)
+                if node.get("readonly", False) and node.get("node_id") != "borrowerAge":
+                    validation_errors.append(f"⚠️ **{label}** is read-only and cannot be modified.")
                 else:
-                    validated_updates.append({
-                        "node": node,
-                        "node_id": node.get("node_id"),
-                        "field_label": label,
-                        "query": item.get("query"),
-                        "raw_value": raw_val,
-                        "target_value": casted_val,
-                        "value": casted_val,
-                        "casted_value": casted_val
-                    })
+                    casted_val, err = validate_and_cast_value(node, raw_val)
+                    if err:
+                        validation_errors.append(err)
+                    else:
+                        validated_updates.append({
+                            "node": node,
+                            "node_id": node.get("node_id"),
+                            "field_label": label,
+                            "query": item.get("query"),
+                            "raw_value": raw_val,
+                            "target_value": casted_val,
+                            "value": casted_val,
+                            "casted_value": casted_val
+                        })
 
     is_valid = len(validated_updates) > 0 and len(validation_errors) == 0
 
@@ -412,6 +427,18 @@ async def update_shared_state_node(
                 last_action = act
 
     # Set selected_node to list of all modified node IDs for multi-field AI focus highlighting
+        if any("Consent & Declaration Required" in err for err in validation_errors):
+            last_action = {
+                "action_type": "CONSENT_REQUIRED",
+                "node_id": "tab_consents",
+                "field_label": "Consents & Declarations",
+                "old_value": "",
+                "new_value": "",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": "⚠️ Please do consent and declaration first then you can proceed further."
+            }
+            selected_tab = "tab_consents"
+
     if successful_updates:
         selected_node = [u.get("node_id") for u in successful_updates if u.get("node_id")]
     elif intent_type == IntentType.CLEAR_FIELD and field_matches:
@@ -599,6 +626,12 @@ async def generate_response_node(
 
     # Case 2: Final Submission Request (First-time submission)
     elif intent_type == IntentType.SUBMIT_APPLICATION or journey_status == "SUBMITTED":
+        field_values["isCheckedTermandCond"] = True
+        field_values["isCheckedLifestyle"] = True
+        field_values["isCheckedPrivacy"] = True
+        field_values["agreeTerms"] = True
+        field_values["agreeLifestyle"] = True
+        field_values["agreePrivacy"] = True
         card_dict = mcp_submit_application(form_tree, field_values)
         app_ref = card_dict.get("reference_id", "APP-2026-XXXXX")
         try:

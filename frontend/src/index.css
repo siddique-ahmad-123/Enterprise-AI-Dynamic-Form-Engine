@@ -51,27 +51,60 @@ body {
   transform: scale(0.95) !important;
 }
 .copilotKitHeader {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   background: linear-gradient(135deg, #1e295d 0%, #0f172a 100%) !important;
   color: #ffffff !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-  padding: 14px 18px !important;
+  padding: 12px 16px !important;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2) !important;
+  position: relative !important;
 }
 
-.copilotKitHeader * {
-  color: #ffffff !important;
+.copilotKitHeader > div:first-child {
+  display: flex !important;
+  align-items: center !important;
+  font-size: 14px !important;
   font-weight: 700 !important;
+  color: #ffffff !important;
+  flex: 1 1 auto !important;
+  white-space: nowrap !important;
 }
 
-.copilotKitHeader button {
+.copilotKitHeaderControls {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+}
+
+.copilotKitHeaderControls .chat-header-history-btn {
+  order: 1 !important;
+}
+
+.copilotKitHeaderCloseButton {
+  order: 2 !important;
   background: rgba(255, 255, 255, 0.15) !important;
   border-radius: 8px !important;
-  padding: 4px 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  width: 28px !important;
+  height: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  cursor: pointer !important;
   transition: all 0.2s ease !important;
+  color: #ffffff !important;
 }
 
-.copilotKitHeader button:hover {
-  background: rgba(255, 255, 255, 0.25) !important;
+.copilotKitHeaderCloseButton:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+  transform: scale(1.05) !important;
 }
 
 /* Smooth Chat Messages Container */
@@ -129,55 +162,87 @@ body {
   width: 100% !important;
 }
 
-/* === HORIZONTAL INPUT: textarea | send-btn | mic-btn in one row === */
-.copilotKitInput {
-  border-top: 1px solid #e2e8f0 !important;
+/* === MODERN PILL-SHAPED CHAT INPUT BAR (Matches ChatGPT/Gemini pill layout with app theme colors) === */
+.copilotKitInputContainer {
   background-color: #ffffff !important;
-  padding: 10px 14px !important;
+  border-top: 1px solid #e2e8f0 !important;
+  padding: 10px 12px 12px 12px !important;
 }
 
-/* Wrapper div inside copilotKitInput — force horizontal flex */
-.copilotKitInput > div,
-.copilotKitInput > form {
+.copilotKitInput {
   display: flex !important;
   flex-direction: row !important;
-  align-items: flex-end !important;
-  gap: 8px !important;
+  align-items: center !important;
+  background-color: #f8fafc !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 9999px !important;
+  padding: 4px 6px 4px 8px !important;
+  gap: 4px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  position: relative !important;
   width: 100% !important;
-  flex-wrap: nowrap !important;
+}
+
+.copilotKitInput:hover {
+  border-color: #cbd5e1 !important;
+}
+
+.copilotKitInput:focus-within {
+  background-color: #ffffff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Left action (+) */
+.chat-input-left-action {
+  order: -1 !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-shrink: 0 !important;
 }
 
 /* Textarea expands to fill remaining space */
 .copilotKitInput textarea {
+  order: 0 !important;
   flex: 1 1 auto !important;
   min-width: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 6px 8px !important;
+  font-size: 13.5px !important;
+  color: #0f172a !important;
+  line-height: 1.4 !important;
   resize: none !important;
-  border-radius: 12px !important;
-  border: 1.5px solid #cbd5e1 !important;
-  padding: 10px 14px !important;
-  font-size: 13px !important;
-  line-height: 1.5 !important;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
-  max-height: 120px !important;
-  overflow-y: auto !important;
+  max-height: 90px !important;
+  min-height: 26px !important;
+}
+
+.copilotKitInput textarea::placeholder {
+  color: #64748b !important;
+  font-size: 13.5px !important;
+  font-weight: 400 !important;
 }
 
 .copilotKitInput textarea:focus {
-  border-color: #1e295d !important;
-  box-shadow: 0 0 0 3px rgba(30, 41, 93, 0.12) !important;
   outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
-/* Controls container (send + mic) — always a horizontal row */
-.copilotKitInput [class*='Controls'],
-.copilotKitInput [class*='controls'],
-.copilotKitInput [class*='ButtonGroup'],
-.copilotKitInput [class*='InputActions'],
-.copilotKitInput [class*='Actions'] {
-  display: inline-flex !important;
-  flex-direction: row !important;
+/* Hide default raw controls button since our custom right action bar handles it */
+.copilotKitInputControls {
+  display: none !important;
+}
+
+/* Right actions container */
+.chat-input-right-actions {
+  order: 1 !important;
+  display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  gap: 4px !important;
   flex-shrink: 0 !important;
 }
 

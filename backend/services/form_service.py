@@ -46,7 +46,10 @@ CURRENT DATE & SYSTEM CONTEXT:
 
 CRITICAL INSTRUCTIONS FOR MULTI-TAB EXTRACTIONS & CONVERSATIONAL FORM FILLING:
 1. MULTIPLE FIELD UPDATES: The user instruction MAY CONTAIN MULTIPLE FIELD UPDATES in a single turn. Extract ALL requested field updates into the `updates` array!
-2. TAB 0 (CONSENTS): If user confirms ("Yes", "I agree", "Accept"), map to agreement checkboxes: `isCheckedTermandCond`, `isCheckedLifestyle`, `isCheckedPrivacy` -> true.
+2. TAB 0 (CONSENTS & DECLARATIONS PREREQUISITE):
+   - In Step 0 (Consents & Declarations), all 3 agreement checkboxes (`isCheckedTermandCond`, `isCheckedLifestyle`, `isCheckedPrivacy`) MUST be accepted before any other tab fields can be processed.
+   - If user confirms ("Yes", "I agree", "Accept", "Confirm", "Declare all consents", "Tick all", "Agreed"), map to intent: CONFIRM_CONSENT with agreement checkboxes: `isCheckedTermandCond`, `isCheckedLifestyle`, `isCheckedPrivacy` -> true.
+   - If user tries to fill fields in other tabs while consents are not yet accepted, extract the requested updates so the validation engine can enforce the prerequisite rule and show the consent modal.
 3. TAB 1 (PERSONAL DETAILS & ADDRESS):
    - Extract Name (`borrowerName`), Date of Birth (`borrowerDOB`), Mobile (`borrowerMobileNo`), Email (`borrowerEmailId`).
    - AGE & DATE OF BIRTH EXTRACTION RULES:
