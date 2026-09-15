@@ -11,7 +11,8 @@ import {
   FileCheck,
   Zap,
   HelpCircle,
-  X
+  X,
+  Loader2,
 } from "lucide-react";
 import { useVoiceRecognition } from "../../hooks/useVoiceRecognition";
 
@@ -65,8 +66,9 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
 
   const {
     isListening,
-    transcript,
-    interimTranscript,
+    isTranscribing,
+    recordingDuration,
+    error: voiceError,
     supported: isVoiceSupported,
     toggleListening,
     resetTranscript,
@@ -263,18 +265,45 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
         {/* Microphone Button */}
         {isVoiceSupported && (
           <div className="relative inline-flex items-center">
-            {/* Live Dictation Banner */}
-            {isListening && (
-              <div className="absolute right-0 bottom-12 px-3 py-1.5 bg-gradient-to-r from-red-600 to-indigo-700 text-white rounded-xl shadow-lg border border-red-400/30 flex items-center gap-2 whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-150 z-50">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-400"></span>
-                </span>
-                <span className="text-xs font-bold">Listening... Speak now</span>
-                {(interimTranscript || transcript) && (
-                  <span className="text-[11px] max-w-[140px] truncate text-slate-100 font-mono bg-black/20 px-2 py-0.5 rounded-md">
-                    "{interimTranscript || transcript}"
-                  </span>
+            {/* Live Dictation / Whisper Status Banner */}
+            {(isListening || isTranscribing || voiceError) && (
+              <div
+                className={`absolute right-0 bottom-12 px-3 py-1.5 text-white rounded-xl shadow-xl border flex items-center gap-2 whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-150 z-50 ${
+                  voiceError
+                    ? "bg-red-700 border-red-500/40 text-red-100"
+                    : isTranscribing
+                    ? "bg-gradient-to-r from-indigo-900 to-blue-900 border-indigo-400/40"
+                    : "bg-gradient-to-r from-red-600 to-indigo-700 border-red-400/30"
+                }`}
+              >
+                {voiceError ? (
+                  <>
+                    <span className="text-xs font-semibold">{voiceError}</span>
+                    <button
+                      type="button"
+                      onClick={resetTranscript}
+                      className="ml-1 text-white/80 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </>
+                ) : isTranscribing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 text-blue-300 animate-spin" />
+                    <span className="text-xs font-bold text-blue-100">
+                      Transcribing with OpenAI Whisper...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-400"></span>
+                    </span>
+                    <span className="text-xs font-bold">
+                      Recording ({Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, "0")})... Click mic to stop
+                    </span>
+                  </>
                 )}
               </div>
             )}
@@ -282,19 +311,29 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (isSubmitted) return;
+                if (isSubmitted || isTranscribing) return;
                 if (!isListening) resetTranscript();
                 toggleListening();
               }}
-              disabled={isSubmitted}
-              title={isListening ? "Stop Voice Recording" : "Voice Input (Speech-to-Text)"}
+              disabled={isSubmitted || isTranscribing}
+              title={
+                isTranscribing
+                  ? "Transcribing with Whisper..."
+                  : isListening
+                  ? "Click to Stop & Transcribe with Whisper"
+                  : "Whisper Voice Input"
+              }
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${
-                isListening
+                isTranscribing
+                  ? "bg-blue-600 text-white"
+                  : isListening
                   ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
               }`}
             >
-              {isListening ? (
+              {isTranscribing ? (
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+              ) : isListening ? (
                 <Mic className="w-4 h-4 text-white stroke-[2.5]" />
               ) : (
                 <Mic className="w-4 h-4 text-slate-600" />

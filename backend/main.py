@@ -6,13 +6,14 @@ The Node.js CopilotRuntime connects here via HttpAgent using the AG-UI protocol.
 """
 
 import os
+import base64
 import logging
 import warnings
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import bcrypt
@@ -458,6 +459,74 @@ async def save_manual_chat_message(thread_id: str, payload: dict):
         "status": "saved" if record else "failed",
         "record": record
     }
+
+
+@app.post("/chat/transcribe")
+@app.post("/transcribe")
+async def transcribe_audio_endpoint(request: Request):
+    """
+    Transcribes audio to text using OpenAI Whisper API (whisper-1).
+    Supports multipart/form-data, raw audio body, and base64 JSON payload.
+    """
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured on server.")
+
+        content_type_header = request.headers.get("content-type", "")
+        audio_bytes = b""
+        filename = "speech.webm"
+        mime_type = "audio/webm"
+
+        if "multipart/form-data" in content_type_header:
+            form = await request.form()
+            uploaded_file = form.get("file") or form.get("audio")
+            if uploaded_file and hasattr(uploaded_file, "read"):
+                audio_bytes = await uploaded_file.read()
+                filename = getattr(uploaded_file, "filename", None) or "speech.webm"
+                mime_type = getattr(uploaded_file, "content_type", None) or "audio/webm"
+        elif "application/json" in content_type_header:
+            body = await request.json()
+            b64_data = body.get("audio_base64") or body.get("audio") or ""
+            if "," in b64_data:
+                b64_data = b64_data.split(",", 1)[1]
+            audio_bytes = base64.b64decode(b64_data)
+            filename = body.get("filename") or "speech.webm"
+            mime_type = body.get("mime_type") or "audio/webm"
+        else:
+            audio_bytes = await request.body()
+            if content_type_header:
+                mime_type = content_type_header.split(";")[0].strip()
+                ext = "webm" if "webm" in mime_type else ("wav" if "wav" in mime_type else "mp4")
+                filename = f"speech.{ext}"
+
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="No audio data received for transcription.")
+
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Enforce English-only speech-to-text with Whisper
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(filename, audio_bytes, mime_type),
+            language="en",
+            prompt="UAE Mortgage Application form assistant, English dictation.",
+        )
+
+        transcribed_text = transcript.text.strip() if transcript and hasattr(transcript, "text") else str(transcript).strip()
+        logger.info("OpenAI Whisper transcribed %d bytes audio -> '%s'", len(audio_bytes), transcribed_text)
+
+        return {
+            "text": transcribed_text,
+            "status": "success",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Whisper transcription error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
+
 
 
 
